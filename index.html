@@ -275,7 +275,7 @@
 
         float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
         if (lengthSq2 < 0.5 + r/2.0) {
-          gl_FragColor = vec4(r, 0, 0, 1);
+          gl_FragColor = vec4(r, sqrt(2.0 - lengthSq2), 0, 1);
         } else {
           discard;
         }
@@ -294,9 +294,8 @@
       void main() {
         vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
         if (tex.w > 0.) {
-          float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
           float light = dot(
-            normalize(vec3(v_rpos, sqrt(2.0 - lengthSq2))), 
+            normalize(vec3(v_rpos, tex.y)), 
             normalize(u_lightdirection) 
           );
           gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), 1);
