@@ -1,0 +1,2456 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Planets!</title>
+
+    <script id="fragment-shader-lib" type="notjs">
+      #define M_PI 3.1415926535897932384626433832795
+      precision highp float;
+
+      //  Simplex 3D Noise 
+      //  by Ian McEwan, Stefan Gustavson (https://github.com/stegu/webgl-noise)
+      vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+      vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+      float snoise(vec3 v){ 
+        const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+        const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i  = floor(v + dot(v, C.yyy) );
+        vec3 x0 =   v - i + dot(i, C.xxx) ;
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min( g.xyz, l.zxy );
+        vec3 i2 = max( g.xyz, l.zxy );
+        vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+        vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+        vec3 x3 = x0 - 1. + 3.0 * C.xxx;
+        i = mod(i, 289.0 ); 
+        vec4 p = permute( permute( permute( 
+                   i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                 + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+        float n_ = 1.0/7.0; // N=7
+        vec3  ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
+        vec4 x = x_ *ns.x + ns.yyyy;
+        vec4 y = y_ *ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4( x.xy, y.xy );
+        vec4 b1 = vec4( x.zw, y.zw );
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+        vec3 p0 = vec3(a0.xy,h.x);
+        vec3 p1 = vec3(a0.zw,h.y);
+        vec3 p2 = vec3(a1.xy,h.z);
+        vec3 p3 = vec3(a1.zw,h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x;
+        p1 *= norm.y;
+        p2 *= norm.z;
+        p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
+                                      dot(p2,x2), dot(p3,x3) ) );
+      }
+
+      float noize_harm(vec3 pos, vec4 params) {
+        float amplitude = 1.0, frequency = 1.0;
+        float n = 0.0;
+
+        for(int o = 0; o < 7; o++){
+          n += amplitude * snoise(pos/params.x*frequency);
+          amplitude *= params.y;
+          frequency *= params.z;
+        }
+        return (n+1.0/2.0) * params.w;
+      }      
+
+      //  Simplex 4D Noise 
+      //  by Ian McEwan, Stefan Gustavson (https://github.com/stegu/webgl-noise)
+      float permute(float x){return floor(mod(((x*34.0)+1.0)*x, 289.0));}
+      float taylorInvSqrt(float r){return 1.79284291400159 - 0.85373472095314 * r;}
+      vec4 grad4(float j, vec4 ip){
+        const vec4 ones = vec4(1.0, 1.0, 1.0, -1.0);
+        vec4 p,s;
+
+        p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;
+        p.w = 1.5 - dot(abs(p.xyz), ones.xyz);
+        s = vec4(lessThan(p, vec4(0.0)));
+        p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www; 
+
+        return p;
+      }
+
+      float snoise(vec4 v){
+        const vec2  C = vec2( 0.138196601125010504,  // (5 - sqrt(5))/20  G4
+                              0.309016994374947451); // (sqrt(5) - 1)/4   F4
+      // First corner
+        vec4 i  = floor(v + dot(v, C.yyyy) );
+        vec4 x0 = v -   i + dot(i, C.xxxx);
+
+      // Other corners
+
+      // Rank sorting originally contributed by Bill Licea-Kane, AMD (formerly ATI)
+        vec4 i0;
+
+        vec3 isX = step( x0.yzw, x0.xxx );
+        vec3 isYZ = step( x0.zww, x0.yyz );
+      //  i0.x = dot( isX, vec3( 1.0 ) );
+        i0.x = isX.x + isX.y + isX.z;
+        i0.yzw = 1.0 - isX;
+
+      //  i0.y += dot( isYZ.xy, vec2( 1.0 ) );
+        i0.y += isYZ.x + isYZ.y;
+        i0.zw += 1.0 - isYZ.xy;
+
+        i0.z += isYZ.z;
+        i0.w += 1.0 - isYZ.z;
+
+        // i0 now contains the unique values 0,1,2,3 in each channel
+        vec4 i3 = clamp( i0, 0.0, 1.0 );
+        vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );
+        vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );
+
+        //  x0 = x0 - 0.0 + 0.0 * C 
+        vec4 x1 = x0 - i1 + 1.0 * C.xxxx;
+        vec4 x2 = x0 - i2 + 2.0 * C.xxxx;
+        vec4 x3 = x0 - i3 + 3.0 * C.xxxx;
+        vec4 x4 = x0 - 1.0 + 4.0 * C.xxxx;
+
+      // Permutations
+        i = mod(i, 289.0); 
+        float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);
+        vec4 j1 = permute( permute( permute( permute (
+                   i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))
+                 + i.z + vec4(i1.z, i2.z, i3.z, 1.0 ))
+                 + i.y + vec4(i1.y, i2.y, i3.y, 1.0 ))
+                 + i.x + vec4(i1.x, i2.x, i3.x, 1.0 ));
+      // Gradients
+      // ( 7*7*6 points uniformly over a cube, mapped onto a 4-octahedron.)
+      // 7*7*6 = 294, which is close to the ring size 17*17 = 289.
+
+        vec4 ip = vec4(1.0/294.0, 1.0/49.0, 1.0/7.0, 0.0) ;
+
+        vec4 p0 = grad4(j0,   ip);
+        vec4 p1 = grad4(j1.x, ip);
+        vec4 p2 = grad4(j1.y, ip);
+        vec4 p3 = grad4(j1.z, ip);
+        vec4 p4 = grad4(j1.w, ip);
+
+      // Normalise gradients
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x;
+        p1 *= norm.y;
+        p2 *= norm.z;
+        p3 *= norm.w;
+        p4 *= taylorInvSqrt(dot(p4,p4));
+
+      // Mix contributions from the five corners
+        vec3 m0 = max(0.6 - vec3(dot(x0,x0), dot(x1,x1), dot(x2,x2)), 0.0);
+        vec2 m1 = max(0.6 - vec2(dot(x3,x3), dot(x4,x4)            ), 0.0);
+        m0 = m0 * m0;
+        m1 = m1 * m1;
+        return 49.0 * ( dot(m0*m0, vec3( dot( p0, x0 ), dot( p1, x1 ), dot( p2, x2 )))
+                     + dot(m1*m1, vec2( dot( p3, x3 ), dot( p4, x4 ) ) ) ) ;
+
+      }
+
+      float noize_harm(vec4 pos, vec4 params) {
+        float amplitude = 1.0, frequency = 1.0;
+        float n = 0.0;
+
+        for(int o = 0; o < 5; o++){
+          n += amplitude * snoise((pos)/params.x*frequency);
+          amplitude *= params.y;
+          frequency *= params.z;
+        }
+        return (n+1.0/2.0) * params.w;
+      }
+
+      float N2(vec2 p)
+      { // Dave Hoskins - https://www.shadertoy.com/view/4djSRW
+        vec3 p3  = fract(vec3(p.xyx) * vec3(443.897, 441.423, 437.195));
+          p3 += dot(p3, p3.yzx + 19.19);
+          return fract((p3.x + p3.y) * p3.z);
+      }
+
+      vec2 spherize(vec2 pos) {
+        float da = atan(pos.y, pos.x);
+        float dr = asin(length(pos)) / M_PI * 2.0;
+        return vec2(cos(da)*dr, sin(da)*dr);
+      }
+    </script>
+
+    <script id="vertex-shader-2d" type="notjs">
+      attribute vec2 a_position;
+      uniform vec2 u_resolution;
+      
+      uniform vec2 u_position;
+      uniform vec2 u_scale;
+      uniform float u_angle;
+      
+      varying vec2 v_rpos;
+
+      void main() {
+        vec2 rotation = vec2(sin(u_angle), cos(u_angle));
+        vec2 rotated = vec2(
+          a_position.x * rotation.y + a_position.y * rotation.x,
+          a_position.y * rotation.y - a_position.x * rotation.x
+        ); 
+        vec2 position = rotated*u_scale + u_position;
+        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        v_rpos = a_position;
+      }
+    </script>
+
+    <script id="vertex-shader-rings" type="notjs">
+      attribute vec2 a_position;
+      uniform vec2 u_resolution;
+      
+      uniform vec2 u_position;
+      uniform vec2 u_scale;
+      uniform float u_angle;
+      
+      varying vec2 v_rpos;
+
+      void main() {
+        vec2 rotation = vec2(sin(u_angle), cos(u_angle));
+        vec2 scaled = a_position * u_scale;
+        vec2 position = vec2(
+          scaled.x * rotation.y + scaled.y * rotation.x,
+          scaled.y * rotation.y - scaled.x * rotation.x
+        ) + u_position; 
+        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        v_rpos = a_position;
+      }
+    </script>
+
+    <script id="fragment-shader-planet-texture" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform int u_type;
+      uniform float u_jpfactor;
+      uniform vec4 u_heightmap;
+      uniform vec4 u_moisturemap;
+      uniform float u_random;
+
+      void main() {
+        float height, moisture;
+
+        vec2 spherizedCoord = v_rpos + vec2(1.0, 1.0);
+        vec2 loopCoord = spherizedCoord * M_PI/2.0 + vec2(0.0, u_random);
+        vec3 noizeCoord = vec3(cos(loopCoord.x), sin(loopCoord.x), loopCoord.y);
+
+
+        if (u_type == 0 || u_type == 1){
+          height = noize_harm(noizeCoord, u_heightmap);
+          moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
+        } else if (u_type == 2 || u_type == 3) {
+          height = noize_harm(vec3(0,noize_harm(noizeCoord, u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
+          moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
+        } else {
+          moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
+          height =   noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
+        }
+
+        gl_FragColor = vec4(height, moisture, 0, 1);
+      }
+    </script>
+
+    <script id="fragment-shader-asteroid-texture" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform float u_random;
+      uniform float u_rough;
+      vec4 noize = vec4(2,u_rough,2.5,1);
+
+      void main() {
+        float r = noize_harm(vec3(v_rpos, u_random), noize);
+
+        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+        if (lengthSq2 < 0.5 + r/2.0) {
+          gl_FragColor = vec4(r, 0, 0, 1);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-asteroid" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform sampler2D u_image;
+      uniform vec3 u_color;
+      uniform float u_random;
+      uniform vec3 u_lightdirection;
+      uniform float u_lightambient;
+
+      void main() {
+        vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
+        if (tex.w > 0.) {
+          float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+          float light = dot(
+            normalize(vec3(v_rpos, sqrt(2.0 - lengthSq2))), 
+            normalize(u_lightdirection) 
+          );
+          gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), 1);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-rings-texture" type="notjs">
+      varying vec2 v_rpos;
+      uniform float u_random;
+      uniform float u_innerradius;
+      vec4 noize = vec4(2,0.8,2.5,1);
+      void main() {
+        float length = length(v_rpos);
+        if (length > u_innerradius && length < 1.0) {
+          gl_FragColor = vec4(noize_harm(vec3(length, 0, u_random), noize), atan(v_rpos.y, v_rpos.x) < 0.0, 0, (1.-smoothstep(0.9,1.,length)) * smoothstep(u_innerradius,u_innerradius+0.1,length));
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-rings" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform sampler2D u_image;
+      uniform vec3 u_color;
+      uniform float u_transparency;
+      uniform int u_bf;
+
+      void main() {
+        vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
+        int side = int(atan(v_rpos.y, v_rpos.x) < 0.0);
+        if (u_bf == side) {
+          gl_FragColor = vec4(u_color, tex.x * tex.w * (1.0-u_transparency));
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-sun" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform vec3 u_color;
+      uniform float u_random;
+      uniform vec2 u_shiny;
+      uniform float u_transparency;
+      uniform float u_rotation;
+      uniform vec4 u_rays;
+
+      void main() {
+        float length = length(v_rpos);
+
+        if (length < 1.0) {
+          float r1 = 1.0 / (u_shiny.x+1.0);
+          float a = atan(v_rpos.y, v_rpos.x)*2.0 + u_rotation/2.0;
+          float rays = max(noize_harm(vec3(cos(a), sin(a), length+u_rotation), u_rays)+0.5, 1.);
+          float center = (1.0/length-1.0)/u_shiny.x;
+
+          float brightness = center + (1.0 - length) * rays * u_shiny.y;
+          gl_FragColor = vec4(u_color * brightness,  brightness);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-fill" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+
+      void main() {
+        gl_FragColor = vec4(u_color, 1);
+      }
+    </script>
+
+    <script id="fragment-shader-flame" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+
+      uniform float u_frame;
+
+      void main() {
+        float y = v_rpos.y/2.;
+        float w = length((v_rpos-vec2(0, 1.))*vec2(0.6+y, 1));
+
+        if (w<1.) {
+          vec4 noize = vec4(6., 0.8, 2.5, 1.);
+          float color = noize_harm(vec3(v_rpos*vec2(w, 1)+vec2(0, -u_frame*0.4), 0), noize);
+          gl_FragColor = vec4(vec3(u_color.r*color, u_color.g*color, u_color.b*(1.-y)), (1.-w)*color);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-rocket" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+      uniform vec3 u_lightdirection;
+
+      void main() {
+        float y = 1.-(v_rpos.y+1.)/2.;
+        float w = sin(y*M_PI*0.8)/3.;
+        float a = 0.;
+        if (y > 0.8) {
+          if (abs(v_rpos.x)<(y-0.5)) {
+            a = smoothstep((y-0.5),(y-0.5)*0.85,abs(v_rpos.x));
+            gl_FragColor = vec4(u_color, a);
+
+          } 
+        }
+        if (abs(v_rpos.x)<w) {
+          float light = dot(
+            normalize(vec3(v_rpos.x, (v_rpos.y)/10., sqrt(w*0.5 - pow(v_rpos.x, 2.)))), 
+            normalize(u_lightdirection) 
+          );
+          float shade = 1.;
+          if (y>0.4 && y<0.42)shade = 0.7;
+          if (y>0.9 && y<0.92)shade = 0.7;
+          if (y>0.93 && y<0.95)shade = 0.7;
+          if (pow(v_rpos.x-0.1, 2.) + pow(v_rpos.y,2.) < 0.01)shade = 0.4;
+          a += smoothstep(w,w*0.85,abs(v_rpos.x));
+          gl_FragColor = vec4(u_color*max(pow(light, 10.)+light/2., 0.0)*shade, a);
+        }   
+      }
+    </script>
+
+    <script id="fragment-shader-missile" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+      uniform vec3 u_lightdirection;
+
+      void main() {
+        float y = 1.-(v_rpos.y+1.)/2.;
+        float w = sin(y*M_PI*0.8)/4.;
+        float a = 0.;
+        if (y > 0.8) {
+          if (abs(v_rpos.x)<(y-0.7)) {
+            a = smoothstep((y-0.7),(y-0.7)*0.85,abs(v_rpos.x));
+            gl_FragColor = vec4(u_color, a);
+          } 
+        }
+        if (abs(v_rpos.x)<w) {
+          float light = dot(
+            normalize(vec3(v_rpos.x, (v_rpos.y)/10., sqrt(w*0.5 - pow(v_rpos.x, 2.)))), 
+            normalize(u_lightdirection) 
+          );
+          a += smoothstep(w,w*0.85,abs(v_rpos.x));
+          gl_FragColor = vec4(u_color*max(pow(light, 10.)+light/2., 0.0), a);
+        }   
+      }
+    </script>
+
+    <script id="fragment-shader-planet" type="notjs">
+      varying vec2 v_rpos;
+      varying vec2 v_tpos;
+
+      uniform sampler2D u_image;
+      uniform int u_type;
+      uniform vec3 u_groundcolor;
+      uniform vec3 u_groundcolor2;
+      uniform vec3 u_seacolor;
+      uniform vec2 u_climate;
+      uniform vec3 u_lightdirection;
+      uniform vec3 u_lightcolor;
+      uniform float u_lightambient;
+      uniform float u_albedo;
+      uniform float u_rotation;
+      uniform float u_random;
+      uniform float u_seashine;
+
+      vec3 color(float longtitude, vec4 tex, float light) {
+        float height = tex.x;
+        float moisture = tex.y;
+        float el = u_climate.y + (u_climate.x-u_climate.y) * (1.0-sin(longtitude)) + pow(height, 3.0);
+
+        vec3 land = vec3(height)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
+
+        if (height < 0.5) {
+          vec3 sea = min(u_seacolor*max(height, 0.2), 1.0);
+          if (light > 0.0 && u_seashine > 1.0){
+            sea += pow(light, u_seashine);
+          }
+          land = mix(sea, land, smoothstep(0.3, 0.5, height));
+        } 
+        if(el > 2.5-moisture) {
+          vec3 snow = vec3(el-1.0);
+          land = mix(land, snow, smoothstep(2.5, 2.9, el+moisture));
+        }
+        return land;
+      }
+
+      vec3 color1(vec4 tex) {
+        return vec3(tex.x)*u_groundcolor + vec3(1.0-tex.y)*u_groundcolor2;
+      }
+
+      void main() {
+        vec3 colour_value;
+        float light;
+        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+
+        if (lengthSq2 < 1.0) {
+          vec2 spherizedCoordTex = spherize(v_rpos)/vec2(4,2)-vec2(-u_rotation/4.0,-0.5);
+          vec4 tex = texture2D(u_image, spherizedCoordTex);
+
+          light = dot(
+            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2))), 
+            normalize(u_lightdirection) 
+          );
+
+          if (u_type == 0 || u_type == 2 || u_type == 4){
+            vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
+            float longtitude = spherizedCoord.y * M_PI/2.0;
+            colour_value = color(longtitude, tex, light);
+          } else {
+            colour_value = color1(tex);
+          }
+          
+          colour_value = colour_value;
+
+          gl_FragColor = vec4(colour_value * max(light, u_lightambient) * u_lightcolor * u_albedo , smoothstep(1.,0.95,lengthSq2));
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-planet-atmosphere" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform vec4 u_clouds;
+      uniform float u_wind;
+      uniform float u_cloudy;
+      uniform float u_cloudchange;
+      uniform vec3 u_lightdirection;
+      uniform vec3 u_lightcolor;
+      uniform float u_lightambient;
+      uniform float u_albedo;
+      uniform float u_rotation;
+      uniform float u_random;
+      uniform float u_glow;
+      uniform float u_jpfactor;
+      uniform int u_type;
+
+      vec3 clouds(float v) {
+        return vec3(max(0.0, v-u_cloudy));
+      }
+
+      void main() {
+        vec3 clouds_value;
+        float light;
+        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+
+        if (lengthSq2 < 1.0) {
+          vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
+
+          float jpfactor = 1.;
+          //if (u_type == 4 || u_type == 5) jpfactor = u_jpfactor;
+          vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y * jpfactor + u_random + 20000.0, u_rotation * u_cloudchange);
+
+          vec4 clouds1 = u_clouds;
+          clouds1.y*=(2.-pow(lengthSq2, 4.))/2.;
+          clouds1.w*=(lengthSq2+1.);
+          clouds_value = clouds(noize_harm(noizeCoord, clouds1));
+          light = dot(
+            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2))), 
+            normalize(u_lightdirection) 
+          );
+
+          vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
+          float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
+
+          gl_FragColor = vec4(clouds_value * max(light, u_lightambient) * u_lightcolor * u_albedo, clouds_value/2. * (1.-smoothstep(0.95,1.,lengthSq2)));
+          gl_FragColor += vec4(glow*vec3(1),glow*u_glow);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-space-texture" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform vec2 u_scale;
+      uniform float u_rotation;
+      uniform float u_random;
+
+      float star(vec2 craterpos, float scale) {
+        vec2 p = abs((v_rpos)-craterpos);
+        p.x = min(p.x-1., p.x);
+        p.y = min(p.y-1., p.y);
+        float l = length(p);
+        return l < scale ? 1. - l/scale : 0.;
+      }
+      float stars() {
+        float y = 0.;
+        float pr = N2(v_rpos+vec2(u_random, 0));
+        if (pr>0.99)
+          y = N2(v_rpos+100.); 
+        for (float i=0.;i<300.;++i) {
+           vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
+           y += star(c, pow(N2(c), 2.)/length(u_scale)*10.);
+        }
+        return y;
+      }
+
+      void main() {
+        vec2 loopCoord = v_rpos * vec2(2, 1) * M_PI;
+        vec4 noizeCoord = vec4(
+          cos(loopCoord.x/2.)+u_random,
+          sin(loopCoord.x/2.),
+          cos(loopCoord.y)+u_random,
+          sin(loopCoord.y)
+        );
+        vec4 heightmap = vec4(10,.6,2.5,1);
+
+        float r,g,b;
+        r = noize_harm(noizeCoord+u_random*100.0+1000.0, heightmap)/10.;
+        g = noize_harm(noizeCoord+u_random*200.0+2000.0, heightmap)/10.;
+        b = noize_harm(noizeCoord+u_random*300.0+3000.0, heightmap)/10.;
+        gl_FragColor = vec4(vec3(
+          pow(clamp(r, 0., 4.), 1.)*0.8,
+          pow(clamp(g, 0., 4.), 1.)*0.4,
+          pow(clamp(b, 0., 4.), 1.)*0.99
+          )+vec3(stars()), 1
+        );
+      }
+    </script>
+
+    <script id="vertex-shader-space" type="notjs">
+      attribute vec2 a_position;
+      uniform vec2 u_resolution;
+      
+      uniform vec2 u_position;
+      uniform vec2 u_scale;
+      uniform float u_angle;
+      varying vec2 v_rpos;
+
+      void main() {
+        vec2 clipSpace = a_position * 2.0 - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        v_rpos = (a_position - u_position / u_scale) * u_resolution / u_scale;
+      }
+    </script>
+
+    <script id="fragment-shader-space" type="notjs">
+      varying vec2 v_rpos;
+      uniform sampler2D u_image;
+      void main() {
+        gl_FragColor = texture2D(u_image, v_rpos);
+      }
+    </script>
+
+    <script>
+      function Random(seed) {
+        function xoshiro128ss(a, b, c, d) {
+          return function() {
+            var t = b << 9, r = a * 5; r = (r << 7 | r >>> 25) * 9;
+            c ^= a; d ^= b;
+            b ^= c; a ^= d; c ^= t;
+            d = d << 11 | d >>> 21;
+            return (r >>> 0) / 4294967296;
+          }
+        }
+        function mulberry32(a) {
+          return function() {
+            var t = a += 0x6D2B79F5;
+            t = Math.imul(t ^ t >>> 15, t | 1);
+            t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+          }
+        }
+        function sfc32(a, b, c, d) {
+          return function() {
+            a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+            var t = (a + b) | 0;
+            a = b ^ b >>> 9;
+            b = c + (c << 3) | 0;
+            c = (c << 21 | c >>> 11);
+            d = d + 1 | 0;
+            t = t + d | 0;
+            c = c + t | 0;
+            return (t >>> 0) / 4294967296;
+          }
+        }
+        let h1 = 1779033703, h2 = 3144134277,
+          h3 = 1013904242, h4 = 2773480762;
+        for (let i = 0, k; i < seed.length; i++) {
+          k = seed.charCodeAt(i);
+          h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+          h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+          h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+          h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+        }
+        h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+        h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+        h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+        h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+        this.seed = [(h1^h2^h3^h4)>>>0, (h2^h1)>>>0, (h3^h1)>>>0, (h4^h1)>>>0];
+        this.rand = xoshiro128ss(this.seed[0], this.seed[1], this.seed[2], this.seed[3]);
+        
+        this.gauss_ready = false;
+        this.gauss_second = 0.0;
+        this.gauss = function(mean, dev) {
+          mean = mean == undefined ? 0.0 : mean;
+          dev = dev == undefined ? 1.0 : dev;
+          
+          if (this.gauss_ready) {
+            this.gauss_ready = false;
+            return this.gauss_second * dev + mean;
+          }
+          else {
+            var u, v, s;
+            do {
+              u = 2.0 * this.rand() - 1.0;
+              v = 2.0 * this.rand() - 1.0;
+              s = u * u + v * v;
+            } while (s > 1.0 || s == 0.0);
+            
+            var r = Math.sqrt(-2.0 * Math.log(s) / s);
+            this.gauss_second = r * u;
+            this.gauss_ready = true;
+            return r * v * dev + mean;
+          }
+        };
+        this.range = function (min, max) {
+          if (typeof(max) == 'undefined') {
+            max = min; min = 0; 
+          }
+          return min + this.rand() * (max - min);
+        }
+        this.fromSet = function (set) {
+          return set[Math.floor(this.rand()*set.length)];
+        }
+        this.getValue = function(rule) {
+          if (rule.set !== undefined) {
+            return this.fromSet(rule.set);
+          }
+          if (rule.mean !== undefined || rule.dev !== undefined) {
+            let value = this.gauss(rule.mean, rule.dev);
+            if (rule.min !== undefined) 
+              value = Math.max(rule.min, value);
+            if (rule.max !== undefined) 
+              value = Math.min(rule.max, value);
+            return value;
+          }      
+          if (rule.min !== undefined || rule.min !== undefined) {
+            return this.range(rule.min, rule.max);
+          }
+          if (rule.value !== undefined) {
+            return rule.value;
+          }
+          return rule;
+        }
+        this.roll = function(sets) {
+          let set;
+          if (Array.isArray(sets)) {
+            set = sets[Math.floor(this.rand() * sets.length)];
+          }
+          let value, params = {};
+          for (let key in set) {
+            if (Array.isArray(set[key])) {
+              value = [];
+              for (let sub in set[key]) {
+                value.push(this.getValue(set[key][sub]));
+              }
+            } else {
+              value = this.getValue(set[key]);
+            }
+            params[key] = value;
+          }
+          return params;
+        }
+      }
+
+      class Program {
+        constructor(renderer, name, vsel, fsel) {
+          this.renderer = renderer;
+          const gl = this.gl = renderer.gl;
+          const vertexShader = this.createShader(gl.VERTEX_SHADER, document.querySelector(vsel).text);
+          const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, document.querySelector("#fragment-shader-lib").text + document.querySelector(fsel).text);
+          this.program = this.createProgram(vertexShader, fragmentShader);
+          const positionAttributeLocation = gl.getAttribLocation(this.program, "a_position");
+
+          gl.enableVertexAttribArray(positionAttributeLocation);
+          gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+          
+          this.use();
+          gl.uniform2f(gl.getUniformLocation(this.program, "u_resolution"), gl.canvas.width, gl.canvas.height);
+          this.setters = this.createUniformSetters();  
+          renderer.addProgram(name, this);     
+        }
+        use() {
+          this.renderer.gl.useProgram(this.program);
+          this.renderer.program = this;
+          return this;
+        }
+        /*
+         * Copyright 2021 GFXFundamentals.
+         * All rights reserved.
+         *
+         * Redistribution and use in source and binary forms, with or without
+         * modification, are permitted provided that the following conditions are
+         * met:
+         *
+         *     * Redistributions of source code must retain the above copyright
+         * notice, this list of conditions and the following disclaimer.
+         *     * Redistributions in binary form must reproduce the above
+         * copyright notice, this list of conditions and the following disclaimer
+         * in the documentation and/or other materials provided with the
+         * distribution.
+         *     * Neither the name of GFXFundamentals. nor the names of his
+         * contributors may be used to endorse or promote products derived from
+         * this software without specific prior written permission.
+         *
+         * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+         * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+         * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+         * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+         * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+         * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+         * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+         * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+         * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+         * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+         * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+         */
+        createShader(type, source) {
+          var shader = this.gl.createShader(type);
+          this.gl.shaderSource(shader, source);
+          this.gl.compileShader(shader);
+          var success = this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS);
+          if (success) {
+            return shader;
+          }
+
+          console.log(this.gl.getShaderInfoLog(shader));
+          this.gl.deleteShader(shader);
+        }
+        createProgram(vertexShader, fragmentShader) {
+          var program = this.gl.createProgram();
+          this.gl.attachShader(program, vertexShader);
+          this.gl.attachShader(program, fragmentShader);
+          this.gl.linkProgram(program);
+          var success = this.gl.getProgramParameter(program, this.gl.LINK_STATUS);
+          if (success) {
+            return program;
+          }
+          console.log(this.gl.getProgramInfoLog(program));
+          this.gl.deleteProgram(program);
+        }
+        createUniformSetters() {
+          let textureUnit = 0;
+          let program = this.program, gl = this.gl;
+          function getBindPointForSamplerType(type) {
+            if (type === gl.SAMPLER_2D)   return gl.TEXTURE_2D;        // eslint-disable-line
+            if (type === gl.SAMPLER_CUBE) return gl.TEXTURE_CUBE_MAP;  // eslint-disable-line
+            return undefined;
+          }
+
+          function createUniformSetter(program, uniformInfo) {
+            const location = gl.getUniformLocation(program, uniformInfo.name);
+            const type = uniformInfo.type;
+            // Check if this uniform is an array
+            const isArray = (uniformInfo.size > 1 && uniformInfo.name.substr(-3) === '[0]');
+            if (type === gl.FLOAT && isArray) {
+              return function(v) {
+                gl.uniform1fv(location, v);
+              };
+            }
+            if (type === gl.FLOAT) {
+              return function(v) {
+                gl.uniform1f(location, v);
+              };
+            }
+            if (type === gl.FLOAT_VEC2) {
+              return function(v) {
+                gl.uniform2fv(location, v);
+              };
+            }
+            if (type === gl.FLOAT_VEC3) {
+              return function(v) {
+                gl.uniform3fv(location, v);
+              };
+            }
+            if (type === gl.FLOAT_VEC4) {
+              return function(v) {
+                gl.uniform4fv(location, v);
+              };
+            }
+            if (type === gl.INT && isArray) {
+              return function(v) {
+                gl.uniform1iv(location, v);
+              };
+            }
+            if (type === gl.INT) {
+              return function(v) {
+                gl.uniform1i(location, v);
+              };
+            }
+            if (type === gl.INT_VEC2) {
+              return function(v) {
+                gl.uniform2iv(location, v);
+              };
+            }
+            if (type === gl.INT_VEC3) {
+              return function(v) {
+                gl.uniform3iv(location, v);
+              };
+            }
+            if (type === gl.INT_VEC4) {
+              return function(v) {
+                gl.uniform4iv(location, v);
+              };
+            }
+            if (type === gl.BOOL) {
+              return function(v) {
+                gl.uniform1iv(location, v);
+              };
+            }
+            if (type === gl.BOOL_VEC2) {
+              return function(v) {
+                gl.uniform2iv(location, v);
+              };
+            }
+            if (type === gl.BOOL_VEC3) {
+              return function(v) {
+                gl.uniform3iv(location, v);
+              };
+            }
+            if (type === gl.BOOL_VEC4) {
+              return function(v) {
+                gl.uniform4iv(location, v);
+              };
+            }
+            if (type === gl.FLOAT_MAT2) {
+              return function(v) {
+                gl.uniformMatrix2fv(location, false, v);
+              };
+            }
+            if (type === gl.FLOAT_MAT3) {
+              return function(v) {
+                gl.uniformMatrix3fv(location, false, v);
+              };
+            }
+            if (type === gl.FLOAT_MAT4) {
+              return function(v) {
+                gl.uniformMatrix4fv(location, false, v);
+              };
+            }
+            if ((type === gl.SAMPLER_2D || type === gl.SAMPLER_CUBE) && isArray) {
+              const units = [];
+              for (let ii = 0; ii < info.size; ++ii) {
+                units.push(textureUnit++);
+              }
+              return function(bindPoint, units) {
+                return function(textures) {
+                  gl.uniform1iv(location, units);
+                  textures.forEach(function(texture, index) {
+                    gl.activeTexture(gl.TEXTURE0 + units[index]);
+                    gl.bindTexture(bindPoint, texture);
+                  });
+                };
+              }(getBindPointForSamplerType(type), units);
+            }
+            if (type === gl.SAMPLER_2D || type === gl.SAMPLER_CUBE) {
+              return function(bindPoint, unit) {
+                return function(texture) {
+                  gl.uniform1i(location, unit);
+                  gl.activeTexture(gl.TEXTURE0 + unit);
+                  gl.bindTexture(bindPoint, texture);
+                };
+              }(getBindPointForSamplerType(type), textureUnit++);
+            }
+            throw ('unknown type: 0x' + type.toString(16)); // we should never get here.
+          }
+
+          const uniformSetters = { };
+          const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+
+          for (let ii = 0; ii < numUniforms; ++ii) {
+            const uniformInfo = gl.getActiveUniform(program, ii);
+            if (!uniformInfo) {
+              break;
+            }
+            let name = uniformInfo.name;
+            // remove the array suffix.
+            if (name.substr(-3) === '[0]') {
+              name = name.substr(0, name.length - 3);
+            }
+            const setter = createUniformSetter(program, uniformInfo);
+            uniformSetters[name] = setter;
+          }
+          return uniformSetters;
+        }
+        setParams(params) {
+          for (let key in params) {
+            if (this.setters[`u_${key}`]) {
+              this.setters[`u_${key}`](params[key]);
+              // console.log(key, params[key]);
+            }
+          }
+        }
+      }
+
+      class Renderer {
+        constructor (canvas) {
+          this.programs = {};
+          const gl = this.gl = canvas.getContext("webgl") || canvas.getContext('experimental-webgl');
+          if (!gl) return;
+
+          const positionBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+          this.setPositions();
+          gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
+          gl.enable(gl.BLEND);
+          // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
+
+        }
+        addProgram(name, program) {
+          this.programs[name] = program;
+          return program;
+        }
+        useProgram(name) {
+          return this.programs[name].use();
+        }
+        setPositions(positions) {
+          positions = positions || [
+                -1, -1,
+                1, -1,
+                -1, 1,
+                -1, 1,
+                1, -1,
+                1, 1,
+          ];
+          this.positions = positions;
+          this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
+          this.count = Math.floor(positions.length/2);
+        }        
+        clear() {
+          this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.GL_DEPTH_BUFFER_BIT );
+        }
+        render(params, x, y, s, s1, a) {
+          if (!this.program) return;
+          if (typeof a == 'undefined') { a = s1; s1 = s;}
+          this.program.setParams(Object.assign({position: [x, y], scale: [s || 1, s1 || s], angle: a || 0}, params));
+          this.gl.drawArrays(this.gl.TRIANGLES, 0, this.count || 6);
+          // this.gl.lineWidth(0.5);
+          // this.gl.drawArrays(this.gl.LINE_LOOP, 0, 6);
+        }
+        orbit(params, x, y, r) {
+          if (!this.program) return;
+          let positions = [];
+          for (let i=0;i<Math.PI*2;i+=Math.PI*2/r) {
+
+            positions.push(Math.cos(i));
+            positions.push(Math.sin(i));
+          }
+          this.setPositions(positions);
+          this.program.setParams(Object.assign({position: [x, y], scale: [r, r]}, params));
+          // this.gl.drawArrays(this.gl.LINE_LOOP, 0, this.count);
+          this.gl.drawArrays(this.gl.LINES, 0, this.count);
+          // this.gl.lineWidth(0.5);
+          // this.gl.drawArrays(this.gl.LINE_LOOP, 0, 6);
+        }
+        texture(params, resolution, positions, texParams) {
+          const gl = this.gl;
+          const targetTextureWidth = resolution;
+          const targetTextureHeight = resolution;
+          const targetTexture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, targetTexture);
+
+          // define size and format of level 0
+          const level = 0;
+          const internalFormat = gl.RGBA;
+          const border = 0;
+          const format = gl.RGBA;
+          const type = gl.UNSIGNED_BYTE;
+          const data = null;
+          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+                      targetTextureWidth, targetTextureHeight, border,
+                      format, type, data);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, texParams['MIN_FILTER'] || gl.LINEAR_MIPMAP_LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, texParams['MAG_FILTER'] || gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, texParams['WRAP'] || gl.REPEAT);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texParams['WRAP'] || gl.REPEAT);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+          const fb = gl.createFramebuffer();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+          const attachmentPoint = gl.COLOR_ATTACHMENT0;
+          gl.framebufferTexture2D( gl.FRAMEBUFFER, attachmentPoint, gl.TEXTURE_2D, targetTexture, level);
+          this.setPositions(positions);
+          let box = {};
+          for (let i=0; i<this.positions.length; ++i){
+            if (!(i % 2)) {
+              if (typeof(box.x1)=='undefined' || this.positions[i] < box.x1) box.x1 = this.positions[i];
+              if (typeof(box.x2)=='undefined' || this.positions[i] > box.x2) box.x2 = this.positions[i];
+            } else {
+              if (typeof(box.y1)=='undefined' || this.positions[i] < box.y1) box.y1 = this.positions[i];
+              if (typeof(box.y2)=='undefined' || this.positions[i] > box.y2) box.y2 = this.positions[i];
+            }
+          }
+          box.w = box.x2-box.x1;
+          box.h = box.y2-box.y1;
+          gl.viewport(0, 0, targetTextureWidth, targetTextureHeight);
+          gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), targetTextureWidth, targetTextureHeight);
+          this.render(params, targetTextureWidth*(-box.x1/box.w), targetTextureHeight*(-box.y1/box.h), targetTextureWidth/box.w, targetTextureHeight/box.h, 0);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          return targetTexture;
+        }
+      }
+
+      class Point {
+        constructor (x, y) {
+          this.set(x,y);
+        }
+        static fromPolar(a, r) {
+          r = r || 1;
+          return new Point(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        static fromPos(x, y) {
+          return new Point(x, y);
+        }
+        set (x, y) {
+          if (x instanceof Point) {
+            this.x=x.x;
+            this.y=x.y;        
+          } else {
+            this.x=x || 0;
+            this.y=y || 0;
+          }
+          return this;
+        }
+        add (x, y) {
+          if (!(x instanceof Point)) {
+            return this.add(new Point(x,y));
+          }
+          this.x += x.x;
+          this.y += x.y;
+          return this;
+        }
+        sub (x, y) {
+          if (!(x instanceof Point)) {
+            return this.sub(new Point(x,y));
+          }
+          this.x -= x.x;
+          this.y -= x.y;
+          return this;
+        }
+        mul (x) {
+          this.x *= x;
+          this.y *= x;
+          return this;
+        }
+        dot (x, y) {
+          if (!(x instanceof Point)) {
+            return this.dot(new Point(x,y));
+          }
+          return this.x*x.x + this.y*x.y;
+        }
+        len () {
+          return Math.hypot(this.x, this.y);
+        }
+        ang () {
+          return Math.atan2(this.y, this.x);
+        }
+        dist (x, y) {
+          if (!(x instanceof Point)) {
+            return this.dist(new Point(x,y));
+          }
+          return Math.hypot((x.x - this.x), (x.y - this.y));
+        }
+        rotate(a) {
+          this.set(Point.fromPolar(this.ang()+a, this.len()));
+        }
+        norm () {
+          let l = this.len();
+          this.x /= l;
+          this.y /= l;
+          return this;
+        }
+        scaled(trans) {
+          return (new Point(this)).mul(trans.scale).add(trans.pos);
+        }
+      }
+
+      function hsl2rgb(h,s,l) {
+        let a = s*Math.min(l,1-l);
+        let f = (n,k=(n+h/30)%12) => 
+            Math.trunc((l - a*Math.max(Math.min(k-3,9-k,1),-1))*255);
+        return [f(0), f(8), f(4)];
+      }
+
+      function getParam(param) {
+        params = new URLSearchParams(window.location.search);
+        switch (param) {
+          case 'population': return Math.max(10, 100 - (params.get('population') || 40));
+          case 'id': return params.get('id') || Math.random();
+        }
+      }
+
+      class Orbit {
+        constructor(radius, angle, speed, rotationAngle, rotationSpeed) {
+          this.radius = radius;
+          this.angle = angle;
+          this.speed = speed;
+          this.rotationAngle = rotationAngle || 0;
+          this.rotationSpeed = rotationSpeed || 0;
+        }
+        get x() { return Math.cos(this.angle) * this.radius; }
+        get y() { return Math.sin(this.angle) * this.radius; }
+        get pos() { return new Point(this.x, this.y); }
+        move() {
+          this.angle += this.speed;
+          this.rotationAngle -= this.rotationSpeed;
+        }
+      }
+
+      class CelestialBody {
+        constructor(random, parent, mass, radius, orbit) {
+          this.params = {};
+          this.random = random;
+          this.parent = parent;
+          this.mass = mass;
+          this.radius = radius;
+          this.orbit = orbit;
+          this.satelites = [];
+          if (this.parent) {
+            this.parent.addSatelite(this);
+          }
+        }
+        roll(){
+          if (this.sets)
+            this.params = this.random.roll(this.sets);
+          this.params.random = this.random.rand()*1110;
+        }
+        get x() { return this.parent ? this.parent.x + this.orbit.x : 0; }
+        get y() { return this.parent ? this.parent.y + this.orbit.y : 0; }
+        get pos() { return new Point(this.x, this.y); }
+        systemParent() {
+          if (!this.parent) return this;
+          return this.parent.systemParent();
+        }
+        eachSatelite(f, ...args) {
+          f.apply(this, args);
+          for (let i=0; i<this.satelites.length; ++i)
+            this.satelites[i].eachSatelite(f, ...args);
+        }
+        moveOne() { this.orbit.move() }
+        move() { 
+          for (let i=0; i<this.satelites.length; ++i)
+            this.satelites[i].move(); 
+          this.moveOne();
+        }
+        gravitateOne(obj) {
+          const G = 100;
+          let dist = Math.max((this.pos.dist(obj.pos)), this.radius, 100);
+          let f = (this.mass / dist**2) * G;
+          obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
+
+  // let objScaledPos = obj.pos.scaled(mr.trans);
+  // let force = Point.fromPos(obj.pos).sub(this.pos).norm().mul(f).mul(-10000);
+  // let forceScaledPos = Point.fromPos(obj.pos).add(force).scaled(mr.trans);
+  // mr.ctx.strokeStyle = '#fff';
+  // mr.ctx.lineWidth=2;
+  // mr.ctx.setLineDash([]);
+  // mr.ctx.beginPath();
+  // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
+  // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
+  // mr.ctx.stroke();
+  // mr.ctx.beginPath();
+  // mr.ctx.arc(objScaledPos.x, objScaledPos.y, obj.r*mr.trans.scale, 0, 2 * Math.PI);
+  // mr.ctx.stroke();
+        }
+        gravitate(obj) {
+          for (let i=0; i<this.satelites.length; ++i)
+            this.satelites[i].gravitate(obj); 
+          this.gravitateOne(obj);
+        }
+        collisionOne(obj) {
+          if (obj.land) {
+            let dp = Point.fromPos(obj.pos).sub(this.pos);
+            if (dp.len() < this.radius + (obj.r || 0)) {
+              return obj.land(this, dp);
+            }
+          }
+        }
+        collision(obj) {
+          for (let i=0; i<this.satelites.length; ++i)
+            if (this.satelites[i].collision(obj)) return; 
+          this.collisionOne(obj);
+        }
+        addSatelite(satelite) {
+          this.satelites.push(satelite);
+        }
+        populate(population) {
+          population = population || 50;
+          let n = Math.floor(this.random.range(this.radius/population))-2;
+          let or = this.radius*2 + this.radius/10;
+          let r, d;
+          n = Math.max(0, n);
+          if (!this.parent) n = Math.max(n, 6);
+
+          let asteroidProb = (!this.parent) * 0.5;
+
+          for (let i=0; i<n; ++i) {
+            r = this.random.range(10, this.radius/2);
+            d = this.random.range(or-200, or+200);
+            or = d + r*2;
+
+            if (this.random.rand() < asteroidProb) {
+              n++;
+              const orbit = new Orbit(
+                d, 
+                this.random.range(Math.PI*2), 
+                this.random.gauss(0.001, 0.0005),
+                this.random.range(Math.PI*2),
+                this.random.gauss(0, 3) * 0
+              );
+              new AsteroidBelt(this, orbit);
+              asteroidProb = asteroidProb * asteroidProb;
+            } else {
+              const orbit = new Orbit(
+                d, 
+                this.random.range(Math.PI*2), 
+                Math.sqrt((this.radius+r)/(d**2))/3,
+                this.random.range(Math.PI*2),
+                this.random.range(Math.PI*2)/100
+              );
+              const planet = new Planet(this, 4/3*Math.PI*r, r, orbit);
+              if (this.random.rand() < 0.3 && planet.radius > 100) {
+                planet.generateRings();
+              }
+              planet.populate(population);
+            }
+          }
+        }
+        drawOne(trans) {
+          if (this.program) {
+            this.program.use();
+            let scaledPos = this.pos.scaled(trans);
+            this.program.renderer.render(
+              this.params, 
+              scaledPos.x, 
+              scaledPos.y,
+              this.radius*trans.scale,
+              this.radius*trans.scale,
+              this.rotation || 0
+            );
+          }
+        }
+        draw(trans) {
+          for (let i=0; i<this.satelites.length; ++i)
+            this.satelites[i].draw(trans); 
+          this.drawOne(trans);
+        }
+      }
+
+      class Planet extends CelestialBody {
+        sets = [
+          {
+            type: 0,
+            jpfactor: 10,
+            heightmap: [10, 0.6, 2.5, 0.8],
+            groundcolor: [0.1, 0.8, 0.1],
+            groundcolor2: [1.41, 0.24, 0.33],
+            seacolor: [0.0, 0.2, 1],
+            moisturemap: [10, 0.6, 2.5, 1],
+            clouds: [3, 0.8, 2.5, 0.9],
+            wind: 1.2,
+            cloudy: 0.4,
+            cloudchange: 0.1,
+            climate: [3, 0],
+            lightambient: 0.2,
+            seashine: {mean: 2, dev: 5,},
+            albedo: {mean: 0.5, dev: 0.1, min: 0.1},
+            glow: 0.25,
+            atmosphere: 1,
+          },
+          {
+            type: {
+              'set': [5],
+            },
+            jpfactor: {
+              mean: 10, dev: 1,
+            },
+            heightmap: [
+              {mean: 20, dev: 5, min: 10},
+              {mean: 0.2, dev: 0.2,},
+              {mean: 1.5, dev: 0.2,},
+              {mean: 1, dev: 0.01,},
+            ],
+            groundcolor: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
+            groundcolor2: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
+            moisturemap: [
+              {mean: 10, dev: 5,},
+              {mean: 0.5, dev: 0.1,},
+              {mean: 2.5, dev: 0.2,},
+              {value: 1,},
+            ],
+            clouds: [
+              {mean: 6, dev: 1,},
+              {mean: 0.6, dev: 0.2, max: 1.2},
+              {mean: 2.5, dev: 0.3,},
+              {mean: 0.9, dev: 0.2,},
+            ],
+            wind: {
+              mean: 1, dev: 0.1,
+            },
+            cloudthreshhold: {
+              mean: 0.5, dev: 0.1,
+            },
+            cloudchange: {
+              mean: 0.1, dev: 0.001,
+            },
+            climate: [
+              {mean: 2, dev: 0.3, min: 0},
+              {value: 0,},
+            ],
+            lightambient: {
+              mean: 0.2, dev: 0.1,
+            },
+            seashine: {
+              mean: 1, dev: 0.5,
+            },
+            albedo: {
+              mean: 0.5, dev: 0.1, min: 0.1,
+            },
+            glow: {
+              mean: 0.1, dev: 0.4, min: 0
+            },
+            atmosphere: {'set': [1]},
+          },
+          {
+            type: {
+              'set': [0,1,2,3],
+            },
+            jpfactor: {
+              mean: 10, dev: 1,
+            },
+            heightmap: [
+              {mean: 10, dev: 1, min: 1},
+              {mean: 0.6, dev: 0.1,},
+              {mean: 2.5, dev: 0.2,},
+              {mean: 1, dev: 0.01,},
+            ],
+            groundcolor: [
+              {mean: 0.1, dev: 0.01,},
+              {mean: 0.8, dev: 0.01,},
+              {mean: 0.1, dev: 0.01,},
+            ],
+            groundcolor2: [
+              {mean: 1.41, dev: 0.01,},
+              {mean: 0.24, dev: 0.01,},
+              {mean: 0.33, dev: 0.01,},
+            ],
+            seacolor: [
+              {mean: 0.0, dev: 0.01,},
+              {mean: 0.2, dev: 0.01,},
+              {mean: 1, dev: 0.01,},
+            ],
+            moisturemap: [
+              {mean: 10, dev: 1,},
+              {mean: 0.6, dev: 0.01,},
+              {mean: 2.5, dev: 0.02,},
+              {value: 1,},
+            ],
+            clouds: [
+              {mean: 3, dev: 1,},
+              {mean: 0.9, dev: 0.1, max: 1.2},
+              {mean: 2.5, dev: 0.2,},
+              {mean: 0.9, dev: 0.2,},
+            ],
+            wind: {
+              mean: 1.2, dev: 0.2, min: 1.0,
+            },
+            cloudy: {
+              mean: 0.3, dev: 0.1,
+            },
+            cloudchange: {
+              mean: 0.1, dev: 0.001,
+            },
+            climate: [
+              {mean: 2, dev: 0.3, min: 0},
+              {value: 0,},
+            ],
+            lightambient: {
+              mean: 0.2, dev: 0.1,
+            },
+            seashine: {
+              mean: 2, dev: 5,
+            },
+            albedo: {
+              mean: 0.5, dev: 0.1, min: 0.1,
+            },
+            glow: {
+              mean: 0.0, dev: 0.5, min: 0
+            },
+            atmosphere: {'set': [1,1,0]},
+          },
+          {
+            type: {
+              'set': [0,1,2,3],
+            },
+            jpfactor: {
+              mean: 10, dev: 20,
+            },
+            heightmap: [
+              {mean: 20, dev: 10, min: 1},
+              {mean: 0.6, dev: 0.1,},
+              {mean: 2.5, dev: 0.2,},
+              {mean: 1, dev: 0.01,},
+            ],
+            groundcolor: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
+            groundcolor2: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
+            seacolor: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
+            moisturemap: [
+              {mean: 10, dev: 5,},
+              {mean: 0.5, dev: 0.1,},
+              {mean: 2.5, dev: 0.2,},
+              {value: 1,},
+            ],
+            clouds: [
+              {mean: 3, dev: 1,},
+              {mean: 0.9, dev: 0.2, max: 1.2},
+              {mean: 2.5, dev: 0.3,},
+              {mean: 1.0, dev: 0.3,},
+            ],
+            wind: {
+              mean: 1.2, dev: 0.2,
+            },
+            cloudthreshhold: {
+              mean: 0.5, dev: 0.1,
+            },
+            cloudchange: {
+              mean: 0.1, dev: 0.001,
+            },
+            climate: [
+              {mean: 2, dev: 0.3, min: 0},
+              {value: 0,},
+            ],
+            lightambient: {
+              mean: 0.2, dev: 0.1,
+            },
+            seashine: {
+              mean: 2, dev: 5,
+            },
+            albedo: {
+              mean: 0.5, dev: 0.1, min: 0.1,
+            },
+            glow: {
+              mean: 0.0, dev: 0.5, min: 0
+            },
+            atmosphere: {'set': [1,1,0]},
+          },
+        ];
+        drawOrbit=true;
+        constructor(parent, mass, radius, orbit) {
+          super(parent.random, parent, mass, radius, orbit);
+          this.roll();
+          this.params.lightcolor = [1, 1, 1];
+          this.params.albedo = 1;          
+          this.rotation = this.random.range(Math.PI*2);
+          this.program = window.renderer.programs.planet;
+          this.orbitColor = this.params.groundcolor;
+          this.generateTex();
+        }
+        drawOne(trans) {
+          let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
+          let s = Point.fromPolar(a + this.rotation, 1);
+          this.params.lightdirection = [s.x, s.y, 0.5];
+          this.params.lightcolor = this.systemParent().light;
+          this.params.rotation = this.orbit.rotationAngle;
+          this.program = window.renderer.programs['planet'];
+          super.drawOne(trans);
+          if (this.params.atmosphere) {
+            this.program = window.renderer.programs['planet-atmosphere'];
+            super.drawOne(trans);
+          }
+        }
+        generateRings() {
+          let r1 = this.random.range(1.1, 2);
+          let r2 = r1 + this.random.range(0.5, 2);
+          let luminocity = this.random.range(0.5, 0.8);
+          this.rings = {
+            angle: this.random.range(0.05, 0.2),
+            size: r2,
+            innerradius: r1/r2,
+            random: this.random.rand()*1000,
+            color: [luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1)],
+            transparency: this.random.range(0.6, 0.8),
+          };
+          window.renderer.useProgram('rings-texture');
+          this.rings.image = window.renderer.texture(this.rings, 512, false, {});
+        }
+        generateTex() {
+          window.renderer.useProgram('planet-texture');
+          this.params.image = window.renderer.texture(this.params, 512, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {});
+        }
+      }
+      class Sun extends CelestialBody {
+        sets = [
+          {
+            shiny: [{min: 0.2, max: 3.5,}, {min: 0.01, max: 1.2,}],
+            hue: {min:0, max: 60},
+            rays: [{mean:0.7, dev:0.3, min:0.2},{mean:0.4, dev:0.1},{min:2, max:10},1],
+          },
+          {
+            shiny: [{min: 0.2, max: 3.5,}, {min: 0.01, max: 1.2,}],
+            hue: {min:160, max: 180},
+            rays: [{mean:0.7, dev:0.3, min:0.2},{mean:0.4, dev:0.1},{min:2, max:10},1],
+          },
+        ];
+        constructor(random, mass, radius) {
+          super(
+            random, 
+            null, 
+            mass, 
+            radius, 
+            new Orbit(0, 0, 0, 0, random.range(Math.PI / 50))
+          );
+          this.roll();
+          this.program = window.renderer.programs.sun;
+        }
+        roll() {
+          super.roll();
+          let c = hsl2rgb(this.params.hue, 1, 0.8);
+          c = [c[0]/255, c[1]/255, c[2]/255];
+          let light = hsl2rgb(this.params.hue, 1, this.random.range(0.7, 0.9));
+          light = [light[0]/255, light[1]/255, light[2]/255];
+          this.light = light;
+          this.params.color = c;
+        }
+        drawOne(trans) {
+          this.params.rotation = this.orbit.rotationAngle;
+          super.drawOne(trans);
+        }
+      }
+      class AsteroidBelt extends CelestialBody {
+        sets = [ 
+          {
+            n: {mean: 250, dev: 100},
+            width: {mean: 100, dev: 20},
+            size: {mean: 15, dev: 5},
+          }
+        ];
+        constructor(parent, orbit) {
+          super(parent.random, parent, 0, 0, new Orbit(0, 0, 0));
+          this.roll();
+          for (let i=0; i<this.params.n; ++i) {
+            new Asteroid(
+                this,
+                this.random.gauss(this.params.size, this.params.size/3),
+                orbit.radius,
+                orbit.speed,
+                this.params.width,
+              );
+          }
+        }
+        gravitateOne(obj) {
+          return;
+        }
+        collisionOne(obj) {
+          return;
+        }
+      }
+      class Asteroid extends CelestialBody {
+        sets = [
+          {
+            lightambient: {min:0.1, max:0.3},
+            rough: {min:0.1, max:0.8},
+            luminocity: {min:0.2, max:0.5}
+          },
+        ];
+        constructor(parent, radius, orbitRadius, speed, orbitWidth) {
+          super(parent.random, parent, 0, radius, null);
+          this.orbit = new Orbit(
+            orbitRadius+this.random.gauss(0, orbitWidth/2), 
+            this.random.range(Math.PI*2), 
+            speed + this.random.range(Math.PI*2) / 10000,
+            this.random.range(Math.PI*2), 
+            this.random.range(Math.PI*2) / 50, 
+          )          
+          this.roll();
+          this.generateTex();
+          this.program = window.renderer.programs.asteroid;
+        }
+        roll() {
+          super.roll();
+          this.params.color = [
+            this.params.luminocity+this.random.gauss(0.1, 0.05), 
+            this.params.luminocity+this.random.gauss(0.1, 0.05), 
+            this.params.luminocity+this.random.gauss(0.1, 0.05)
+          ];
+        }        
+        drawOne(trans) {
+          let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
+          let s = Point.fromPolar(a + this.orbit.rotationAngle, 1);
+          this.params.lightdirection = [s.x, s.y, 1];
+          this.rotation = this.orbit.rotationAngle;
+          super.drawOne(trans);
+        }
+        generateTex() {
+          window.renderer.useProgram('asteroid-texture');
+          this.params.image = window.renderer.texture(this.params, 128, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        }
+        gravitateOne(obj) {
+          return;
+        }
+        collisionOne(obj) {
+          return;
+        }
+      }
+
+      class Man {
+        constructor(pos) {
+          this.pos = new Point(pos);
+          this.a = 0;
+          this.s = 0;
+          this.r = 100;
+          this.dp = new Point();
+          this.gdp = new Point();
+          this.f = new Point();
+          this.fuel = 100;
+          this.thrust = {
+            get on() { return !!(this.u || this.d || this.l || this.r) }
+          }
+          this.frame = 0;
+        }
+
+        land(planet, dp){
+          if (!(planet instanceof Planet)) return;
+          if (this.takingOff) {
+            this.stillTakingOff = true;
+            return true;
+          }
+          this.onPlanet = planet;
+          this.onPlanetA = dp.ang();
+
+          mr.manNewPos = false;
+          this.thrust.u = false;
+          this.thrust.r = false;
+          this.thrust.l = false;
+          return true;
+        }  
+
+        move(sun) {
+          this.frame++;
+          this.gdp.set(0, 0);
+          let oldPos = Point.fromPos(this.pos);
+
+          //sun.eachSatelite(function(obj) {this.gravitate(obj)}, this);
+          sun.gravitate(this);
+
+          this.dp.add(this.gdp);
+
+  // let objScaledPos = this.pos.scaled(mr.trans);
+  // let forceScaledPos = Point.fromPos(this.pos).add(new Point(this.gdp).mul(-10000)).scaled(mr.trans);
+  // mr.ctx.strokeStyle = '#f00';
+  // mr.ctx.lineWidth=2;
+  // mr.ctx.setLineDash([]);
+  // mr.ctx.beginPath();
+  // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
+  // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
+  // mr.ctx.stroke();
+          let sp=1;
+          let ts = 1;
+          if (mr.manNewPos) {
+                let mod = (a, n) => (a % n + n) % n;
+                let diff = new Point(mr.manNewPos.pos).sub(this.pos)
+                let ga = diff.ang();
+                let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+                
+                if (diff.len() < 5000)ts += (diff.len()-5000)/5000;
+                if (da < 0){this.thrust.l = true;this.thrust.r=false;}
+                if (da > 0){this.thrust.r = true;this.thrust.l=false;}
+                this.thrust.u = true;
+                               
+                if (diff.len() < 2000)sp = 0.5;
+                if (diff.len() < this.r+(mr.manNewPos.radius || 200)) {
+                  mr.manNewPos = false;
+                  this.thrust.u = false;
+                  this.thrust.r = false;
+                  this.thrust.l = false;
+                }
+          }
+
+          let wasOnPlanet = this.onPlanet;
+
+          this.stillTakingOff = false;
+          if (!this.onPlanet) {
+            sun.collision(this);
+          }
+          if (!this.stillTakingOff) {
+            this.takingOff = false;
+          }
+          if (!this.thrust.on) {
+            this.takingOff = false;
+          }
+
+          if (!wasOnPlanet && this.onPlanet) {
+            this.thrust.u = false;
+            // this.a = this.onPlanetA;
+          }
+
+          if (this.thrust.u && this.onPlanet) {
+            this.takingOff = this.onPlanet;
+            this.onPlanet = false;
+          }
+
+          if (!this.onPlanet) {
+            if (this.thrust.u) {
+              this.dp.sub(Point.fromPolar(this.a, 5*sp));
+              this.fuel -= 1;
+            }
+            if (this.thrust.d) {
+              this.dp.add(Point.fromPolar(this.a, 2.5));
+              this.fuel -= 0.5;
+            }
+            if (this.thrust.r) {
+              this.a += 0.05/this.thrust.planetary;
+              this.fuel -= 0.01;
+            }
+            if (this.thrust.l) {
+              this.a -= 0.05/this.thrust.planetary;
+              this.fuel -= 0.01;
+            }
+            if (this.thrust.planetary > 1)
+              this.thrust.planetary--;
+          }
+
+          if (this.onPlanet) {
+            this.thrust.planetary = 10;
+            let forA = Math.max(this.onPlanet.radius, 200);
+            let o = Point.fromPolar(this.onPlanetA, this.onPlanet.radius);
+            let moved = false;
+
+            // if (this.onPlanet.rotation) {
+            //   this.onPlanetA += this.onPlanet.rotation;
+            //   moved = true;
+            // }
+            if (this.thrust.r) {
+              this.onPlanetA += 10/forA;
+              moved = true;
+            }
+            if (this.thrust.l) {
+              this.onPlanetA -= 10/forA;
+              moved = true;
+            }
+
+            let n = Point.fromPolar(this.onPlanetA, this.onPlanet.radius);
+            let newPos = Point.fromPos(this.onPlanet.pos).add(n);
+            this.dp = Point.fromPos(oldPos).sub(newPos);
+            this.gdp = Point.fromPolar(this.onPlanetA);
+            
+              // this.a = this.onPlanetA;
+
+            if (this.mode == 'man') {
+              if (moved) {
+                this.a = Point.fromPos(n).sub(o).ang();
+              } else {
+                // this.a += this.onPlanet.s;
+              }           
+            } else {
+              //this.a = this.onPlanetA;
+              if (!moved) {
+                let mod = (a, n) => (a % n + n) % n;
+                let ga = this.onPlanetA;
+                let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+                this.a += da/15;
+              } else {
+                this.a = this.onPlanetA;
+              }
+            }
+          }
+
+          let speed = this.dp.len();
+          if (speed > 20) {
+            this.dp.mul(0.95);
+          }
+
+          if (!this.thrust.on && !this.onPlanet) {
+            let mod = (a, n) => (a % n + n) % n;
+            let ga = this.gdp.ang();
+            let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+            this.a += da/150;
+          }
+
+          this.pos.sub(this.dp);
+        }
+
+        fireRocket(world) {
+          const rocket = new Rocket(Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100)), this.a+Math.PI, 0.44, 100);
+          rocket.dp.set(this.dp);
+          world.rockets.add(rocket);
+        }
+      }; 
+
+      class Rocket{
+        constructor(pos,a,s,fuel) {
+          this.pos = new Point(pos);
+          this.a=a;
+          this.s=s;
+          this.fuel=fuel || 40;
+          this.dp = new Point();
+          this.gdp = new Point();
+        }
+        land(planet, dp){
+          this.onPlanet = planet;
+          this.onPlanetA = dp.ang();
+          return true;
+        }  
+        move(sun) {
+          this.gdp.set(0, 0);
+
+          sun.gravitate(this);
+          
+          if (this.fuel > 0) {
+            this.dp.add(Point.fromPolar(this.a, this.s));
+            this.fuel--;
+          }
+          this.dp.add(this.gdp);
+          
+          // let speed = this.dp.len();
+          // if (speed > 20) {
+          //   this.dp.mul(0.9);
+          // }
+          this.pos.sub(this.dp);          
+          sun.collision(this);
+        }
+      } 
+
+      MovingRect = function(canvas) {
+        this.canvas = canvas;
+
+        if (canvas.getContext) {
+          this.width = this.canvas.getBoundingClientRect().width;
+          this.height = this.canvas.getBoundingClientRect().height;
+          this.ctx = this.canvas.getContext('2d');
+          this.ctx.lineWidth = 3;
+          this.ctx.fillStyle = '#000000';
+          this.ctx.fillRect(0, 0, this.width, this.height);
+
+          this.planetsCanvas = document.createElement('canvas');
+          this.planetsCanvas.width = this.width;
+          this.planetsCanvas.height = this.height;
+
+          const renderer = new Renderer(this.planetsCanvas);
+
+          new Program(renderer, "sun", "#vertex-shader-2d", "#fragment-shader-sun");
+          new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
+          new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
+          new Program(renderer, "missile", "#vertex-shader-rings", "#fragment-shader-missile");
+
+          new Program(renderer, "asteroid-texture", "#vertex-shader-2d", "#fragment-shader-asteroid-texture");
+          new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
+
+          new Program(renderer, "planet-texture", "#vertex-shader-2d", "#fragment-shader-planet-texture");
+          new Program(renderer, "planet-atmosphere", "#vertex-shader-2d", "#fragment-shader-planet-atmosphere");
+          new Program(renderer, "planet", "#vertex-shader-2d", "#fragment-shader-planet");
+
+          new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
+          new Program(renderer, "rings", "#vertex-shader-rings", "#fragment-shader-rings");
+
+          new Program(renderer, "space-texture", "#vertex-shader-2d", "#fragment-shader-space-texture");
+          new Program(renderer, "space", "#vertex-shader-space", "#fragment-shader-space");
+
+          window.renderer = renderer;
+
+          this.setRandom(getParam('id') || Math.random());
+          this.genaratePlanets();
+
+          console.log(this.sun);
+
+          this.rockets = new Set();  
+
+          this.trans={
+            pos: new Point(),
+            scale: 0.1,
+            unscaledPos: new Point(),
+          };
+
+          let startplanets = [];
+          for (let i=0;i<this.sun.satelites.length;++i) {
+            if (!(this.sun.satelites[i] instanceof Planet)) 
+              continue;
+            startplanets.push(this.sun.satelites[i]);
+          }
+
+          window.startplanets = startplanets;
+          //this.man = new Man(startplanets[Math.floor(Math.random()*startplanets.length)].pos);
+          this.man = new Man(this.random.fromSet(startplanets).pos);
+          this.fromSet
+          //this.man = new Man(this.sun.pos);
+          this.man.mode = 'rocket';
+
+
+          this.setCenter(new Point(0,0), 0.05, true);
+
+          this.genarateStars();
+
+          this.frame = 0;
+        }
+      };
+
+      MovingRect.prototype.setRandom = function(seed) {
+        if (typeof(seed) == 'undefined')
+          seed = Math.random();
+        this.random = new Random(`${seed}`);
+        console.log(`#${seed}`);
+      }
+
+      MovingRect.prototype.setCenter = function(pos, scale, immidiate) {
+        if (immidiate) {
+          this.unscaledPos = pos;
+          if (scale) {
+            this.trans.scale = scale;
+          }
+        } else {
+          if (scale) {
+            let ds = scale - this.trans.scale;
+            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/50;
+          }
+          let d = Point.fromPos(pos).sub(this.unscaledPos);
+          this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
+          this.unscaledPos.y += Math.sqrt(Math.abs(d.y))*Math.sign(d.y)*2;
+        }
+        let t = Point.fromPos(this.width/2, this.height/2).sub(Point.fromPos(this.unscaledPos).mul(this.trans.scale));
+        this.trans.pos = t;
+      } 
+
+      MovingRect.prototype.genaratePlanets = function() {
+        this.sun = new Sun(this.random, 1000*10, 1000);
+        this.sun.populate(getParam('population'));
+      } 
+
+      MovingRect.prototype.genarateStars = function() {
+        window.renderer.setPositions();
+        window.renderer.useProgram('space-texture');
+        this.stars = window.renderer.texture({random:this.random.rand()}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+      }
+
+      MovingRect.prototype.drawStars = function() {
+        let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
+        window.renderer.setPositions();
+        window.renderer.useProgram('space');
+        window.renderer.render({image:this.stars}, d.x, d.y, 1024);
+      }
+
+      MovingRect.prototype.drawPlanetsRings = function(far) {
+        function drawRings(ctx, trans, far) {
+          if (this.rings) {
+            let scaledPos = this.pos.scaled(trans);
+            window.renderer.render(
+              Object.assign(this.rings, {bf:far}),
+              scaledPos.x, 
+              scaledPos.y,
+              this.radius*this.rings.size*trans.scale,
+              this.radius*this.rings.size*this.rings.angle*trans.scale,
+              this.rotation
+            );
+          }
+        }
+        window.renderer.useProgram('rings');
+        this.sun.eachSatelite(drawRings, this.ctx, this.trans, far);
+      }
+
+      MovingRect.prototype.drawPlanets = function() {
+        function drawOrbit(ctx, trans) {
+          if (window.hideOrbits) {
+            // if (this.drawOrbit && this.orbit.radius>0) {
+            //   let scaledPos = this.parent.pos.scaled(trans);
+            //   window.renderer.useProgram('man');
+            //   window.renderer.orbit({color:[0.7,0.7,0.7]}, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
+            //   renderer.setPositions();
+            // }
+            return;
+          }
+          if (this.drawOrbit && this.orbit.radius>0) {
+            let scaledPos = this.parent.pos.scaled(trans);
+            ctx.setLineDash([4, 2]);
+            ctx.lineWidth = 0.5;
+            ctx.strokeStyle = this.orbitColor ? `rgb(${this.orbitColor[0]*255}, ${this.orbitColor[1]*255}, ${this.orbitColor[2]*255})` : '#777';
+            ctx.beginPath();
+            ctx.arc(scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
+        }
+        this.sun.eachSatelite(drawOrbit, this.ctx, this.trans);
+        this.sun.draw(this.trans);
+        if (this.man && this.man.onPlanet) {
+          window.renderer.setPositions();
+          window.renderer.useProgram('planet');
+          window.renderer.render(this.man.onPlanet.params, 150, 150, 125, this.man.onPlanet.rotation);
+          if (this.man.onPlanet.params.atmosphere) {
+            window.renderer.useProgram('planet-atmosphere');
+            window.renderer.render(this.man.onPlanet.params, 150, 150, 125, this.man.onPlanet.rotation);
+          }
+        }
+      }
+
+      MovingRect.prototype.drawMan = function() {
+
+        if (this.manNewPos) {
+          let scaledPos = this.manNewPos.pos.scaled(this.trans);  
+          this.ctx.fillStyle = '#f00';
+          this.ctx.beginPath();
+          this.ctx.arc(scaledPos.x, scaledPos.y, 10, 0, 2 * Math.PI);
+          this.ctx.fill();
+        }
+
+        let scaledPos = this.man.pos.scaled(this.trans);
+        let t, a = this.man.a;
+
+        renderer.setPositions([
+              -1, 0,
+              1, 0,
+              -1, 2,
+              -1, 2,
+              1, 0,
+              1, 2,
+        ]);
+
+        if (!this.man.onPlanet) {
+          window.renderer.useProgram('flame');
+          if (this.man.thrust.u) {
+            t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
+            window.renderer.render({color:[1.0,0.3,1.0], frame:this.man.frame}, t.x, t.y, 10, 30, -a-Math.PI/2);
+          }
+          let l = 1, r = 0;
+          if (this.man.thrust.d) {
+            if (this.man.thrust.r) l=0.75;
+            else l = 0.5;
+            if (this.man.thrust.l) r=-0.25;
+            else r = -0.5;
+          }
+          if (this.man.thrust.d || this.man.thrust.r) {
+            t = Point.fromPos(scaledPos).
+              add(Point.fromPolar(a, 25)).
+              add(Point.fromPolar(a-Math.PI/2, 10));
+            window.renderer.render({color:[0.1,0.3,1.0], frame:this.man.frame}, t.x, t.y, 5, 20, -a+Math.PI*l);
+          }
+          if (this.man.thrust.d || this.man.thrust.l) {
+            t = Point.fromPos(scaledPos).
+              add(Point.fromPolar(a, 25)).
+              add(Point.fromPolar(a-Math.PI/2, -10));
+           window.renderer.render({color:[0.1,0.3,1.0], frame:this.man.frame}, t.x, t.y, 5, 20,  -a-Math.PI*r);
+          }
+        }
+        renderer.setPositions();
+        let s = Point.fromPolar(Point.fromPos(this.man.pos).ang() - Math.PI/2-a, 1);
+        let lightdirection = [s.x, s.y, 1];
+        
+        t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
+        window.renderer.useProgram('rocket');
+        window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 30, 30, -a+Math.PI/2);
+        renderer.setPositions();
+      }
+
+      MovingRect.prototype.moveRockets = function() {
+        for (let rocket of this.rockets) {
+          rocket.move(this.sun);
+          if (rocket.onPlanet) {
+            this.rockets.delete(rocket);
+          }
+        }
+      }
+
+      MovingRect.prototype.drawRockets = function() {
+        for (let rocket of this.rockets) {
+          let s = Point.fromPolar(Point.fromPos(rocket.pos).ang() - Math.PI/2 - rocket.a, 1);
+          let lightdirection = [-s.x, -s.y, 1];
+          let t = rocket.pos.scaled(this.trans);
+          if (rocket.fuel > 0) {
+            renderer.setPositions([-1, 0,  1, 0,  -1, 2,  -1, 2,  1, 0,  1, 2,]);
+            let t1 = Point.fromPos(t).add(Point.fromPolar(rocket.a, 15));
+            window.renderer.useProgram('flame');
+            window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
+          }
+          renderer.setPositions();
+          window.renderer.useProgram('missile');
+          window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
+         
+          
+          // let spe = rocket.pos.scaled(this.trans).sub(Point.fromPolar(rocket.a, 20));
+
+          // this.ctx.strokeStyle = '#fff';
+          // this.ctx.setLineDash([]);
+          // this.ctx.lineWidth = 3;
+          // this.ctx.beginPath();
+          // this.ctx.moveTo(sps.x,sps.y);
+          // this.ctx.lineTo(spe.x, spe.y);
+          // this.ctx.stroke();
+          // if (rocket.fuel > 0) {
+          //   this.ctx.fillStyle = '#fe0';
+          //   this.ctx.beginPath();
+          //   this.ctx.arc(sps.x,sps.y, Math.random()*4+2, 0, 2 * Math.PI);
+          //   this.ctx.fill();
+          // }
+        }
+      }
+
+      MovingRect.prototype.draw = function() {
+        this.ctx.fillStyle = "rgb(0,0,0)";
+        this.ctx.fillRect(0, 0, canvas.width, canvas.height);
+        window.renderer.clear();
+        this.drawStars();
+        if (!window.paused)        
+          this.sun.move();
+        if (this.man)
+          this.man.move(this.sun);
+        this.moveRockets();
+
+        this.drawPlanetsRings(true);
+
+this.ctx.drawImage(window.renderer.gl.canvas, 0, 0);
+window.renderer.clear();
+
+        this.drawPlanets();
+        this.drawRockets();
+        if (this.man)
+          this.drawMan();
+        this.drawPlanetsRings(false);
+        this.ctx.drawImage(window.renderer.gl.canvas, 0, 0);
+
+        if (this.man) {
+          let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
+          // if (window.pos) c = window.pos;
+          if (window.scale)  {
+            if (this.trans.scale < 0.1)
+              c = new Point(0, 0);
+            this.setCenter(c, window.scale);
+          } else {
+            this.setCenter(c, this.man.thrust.u || this.man.thrust.d ? 0.1 : 0.2);
+          }
+        }
+        requestAnimationFrame(()=>{this.draw()});
+      };
+    </script>
+  </head>
+  <body style="margin: 0px; overflow: hidden">
+    <canvas id="canvas" width="500" height="500" style="margin: 0px; overflow: hidden; touch-action: none;"></canvas>
+  </body>
+  <script>
+    const canvas = document.getElementById('canvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    mr = new MovingRect(canvas, 16, 16);
+    mr.draw();
+    window.hideOrbits = false;
+
+    document.addEventListener('keydown', function(e) {
+      switch (e.code) {
+        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
+        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
+        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
+        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.manNewPos=false; break;
+        case 'NumpadAdd': case 'Equal': window.scale = 0.4; break;
+        case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
+      }
+      console.log(e.code);
+    });
+
+    document.addEventListener('keyup', function(e) {
+      switch (e.code) {
+        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = false; break;
+        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
+        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
+        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
+        case 'Space': mr.man.fireRocket(mr); break;
+        case 'NumpadAdd': case 'Equal': 
+        case 'NumpadSubtract': case 'Minus': window.scale = false; break;
+        case 'KeyO': window.hideOrbits = !window.hideOrbits; break;
+        case 'KeyP': window.paused = !window.paused; break;
+        case 'Digit1': 
+          if (mr.man.onPlanet) {
+            mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
+            mr.man.onPlanet.generateTex();
+          }
+        break;
+        case 'Digit2': 
+          if (mr.man.onPlanet) {
+            mr.man.onPlanet.roll();
+            mr.man.onPlanet.generateTex();
+          }
+        break;
+        case 'Digit3': 
+          if (mr.man.onPlanet) {
+            if (mr.man.onPlanet.rings) 
+              delete mr.man.onPlanet.rings;
+            else 
+              mr.man.onPlanet.generateRings();
+          }
+        break;
+        case 'Digit4': 
+          mr.sun.roll();
+        break;
+        case 'Digit5': 
+          mr.setRandom();
+          mr.genaratePlanets();
+          mr.genarateStars();
+          mr.man.onPlanet=false;
+        break;
+        case 'Digit6': 
+          mr.genarateStars();
+          mr.man.onPlanet=false;
+        break;
+        case 'KeyZ': mr.man.dp.set(0,0); break;
+      }
+
+    });
+    window.addEventListener("resize", (event) => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      window.renderer.gl.canvas.width = canvas.width;
+      window.renderer.gl.canvas.height = canvas.height;
+      window.renderer.gl.viewport(0, 0, window.renderer.gl.canvas.width, window.renderer.gl.canvas.height);
+      for (program in window.renderer.programs) {
+        let p = window.renderer.programs[program];
+        p.use();
+        window.renderer.gl.uniform2f(window.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
+      }
+      mr.width = canvas.getBoundingClientRect().width;
+      mr.height = canvas.getBoundingClientRect().height;      
+    });
+
+    function setDirectionPoint(event) {
+      event.preventDefault();
+      const rect = event.target.getBoundingClientRect();
+      const x = event.clientX - rect.left; 
+      const y = event.clientY - rect.top;  
+
+      let pos = new Point(0, 0).sub(mr.trans.pos);
+      let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
+
+      let xx = (x-mr.trans.pos.x)/mr.trans.scale;
+      let yy = (y-mr.trans.pos.y)/mr.trans.scale;
+
+      if (this.onPlanet) {
+        mr.man.onPlanet = false;
+        mr.man.takingOff = this.onPlanet;
+      }
+
+      mr.manNewPos = {pos:new Point(xx, yy)};
+      mr.sun.eachSatelite(function(obj) {
+        if (!(this instanceof Planet)) return;
+        let dp = Point.fromPos(mr.manNewPos.pos).sub(this.pos);
+          if (dp.len() < this.radius) {
+            mr.manNewPos = this;
+            console.log(mr.manNewPos);
+            return true;
+          }
+      }, this);
+    }
+
+    document.addEventListener("click", setDirectionPoint);
+    document.addEventListener("tap", setDirectionPoint);
+
+    const pinchZoom = (imageElement) => {
+      let imageElementScale = 1, o;
+
+      let start = {};
+
+      // Calculate distance between two fingers
+      const distance = (event) => {
+        return Math.hypot(event.touches[0].pageX - event.touches[1].pageX, event.touches[0].pageY - event.touches[1].pageY);
+      };
+
+      imageElement.addEventListener('touchstart', (event) => {
+        console.log('touchstart', event.touches.length);
+        if (event.touches.length === 2) {
+          event.preventDefault(); // Prevent page scroll
+
+          // Calculate where the fingers have started on the X and Y axis
+          start.x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+          start.y = (event.touches[0].pageY + event.touches[1].pageY) / 2;
+          start.distance = distance(event);
+          start.scale = mr.trans.scale;
+        }
+      });
+
+      imageElement.addEventListener('touchmove', (event) => {
+        if (event.touches.length === 2) {
+          event.preventDefault(); // Prevent page scroll
+
+          // Safari provides event.scale as two fingers move on the screen
+          // For other browsers just calculate the scale manually
+          let scale;
+          if (event.scale) {
+            scale = event.scale;
+          } else {
+            const deltaDistance = distance(event);
+            scale = deltaDistance / start.distance;
+          }
+          imageElementScale = Math.min(Math.max(0.1, scale), 5);
+
+          // Calculate how much the fingers have moved on the X and Y axis
+          //const deltaX = (((event.touches[0].pageX + event.touches[1].pageX) / 2) - start.x) * 2; // x2 for accelarated movement
+          //const deltaY = (((event.touches[0].pageY + event.touches[1].pageY) / 2) - start.y) * 2; // x2 for accelarated movement
+
+          window.scale = start.scale * imageElementScale;
+          window.scale = Math.min(Math.max(0.05, window.scale), 1);
+
+          /*const x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+          const y = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+
+          let pos = new Point(0, 0).sub(mr.trans.pos);
+          let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
+
+          let xx = (x-mr.trans.pos.x)/mr.trans.scale;
+          let yy = (y-mr.trans.pos.y)/mr.trans.scale;
+
+          window.pos = new Point(xx, yy);*/
+
+        }
+      });
+
+      imageElement.addEventListener('touchend', (event) => {
+        console.log('touchend');
+        window.scale = false;
+        //window.pos = false;
+      });
+    }
+    pinchZoom(canvas);
+  </script>
+</html>
