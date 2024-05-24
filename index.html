@@ -213,11 +213,9 @@
     <script id="vertex-shader-rings" type="notjs">
       attribute vec2 a_position;
       uniform vec2 u_resolution;
-      
       uniform vec2 u_position;
       uniform vec2 u_scale;
       uniform float u_angle;
-      
       varying vec2 v_rpos;
 
       void main() {
@@ -334,6 +332,7 @@
       void main() {
         vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
         int side = int(atan(v_rpos.y, v_rpos.x) < 0.0);
+        float a = atan(v_rpos.y, v_rpos.x);
         if (u_bf == side) {
           gl_FragColor = vec4(u_color, tex.x * tex.w * (1.0-u_transparency));
         } else {
@@ -356,13 +355,15 @@
         float length = length(v_rpos);
 
         if (length < 1.0) {
-          float r1 = 1.0 / (u_shiny.x+1.0);
-          float a = atan(v_rpos.y, v_rpos.x)*2.0 + u_rotation/2.0;
-          float rays = max(noize_harm(vec3(cos(a), sin(a), length+u_rotation), u_rays)+0.5, 1.);
-          float center = (1.0/length-1.0)/u_shiny.x;
-
-          float brightness = center + (1.0 - length) * rays * u_shiny.y;
-          gl_FragColor = vec4(u_color * brightness,  brightness);
+          if (length > 1.0 / (u_shiny.x+1.0)) {
+            float a = atan(v_rpos.y, v_rpos.x)*2.0 + u_rotation/2.0;
+            float rays = max(noize_harm(vec3(cos(a), sin(a), length+u_rotation), u_rays)+0.5, 1.);
+            float center = (1.0/length-1.0)/u_shiny.x;
+            float brightness = center + (1.0 - length) * rays * u_shiny.y;
+            gl_FragColor = vec4(u_color * brightness,  brightness);
+          } else {
+            gl_FragColor = vec4(1); 
+          }
         } else {
           discard;
         }
@@ -1011,7 +1012,7 @@
       class Renderer {
         constructor (canvas) {
           this.programs = {};
-          const gl = this.gl = canvas.getContext("webgl") || canvas.getContext('experimental-webgl');
+          const gl = this.gl = canvas.getContext("webgl", {antialias: false}) || canvas.getContext('experimental-webgl');
           if (!gl) return;
 
           const positionBuffer = gl.createBuffer();
@@ -1019,7 +1020,7 @@
           this.setPositions();
           gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
           gl.clearColor(0, 0, 0, 0);
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
+          gl.clear(gl.COLOR_BUFFER_BIT);
           gl.enable(gl.BLEND);
           // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
           gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
@@ -1046,7 +1047,7 @@
           this.count = Math.floor(positions.length/2);
         }        
         clear() {
-          this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.GL_DEPTH_BUFFER_BIT );
+          this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         }
         render(params, x, y, s, s1, a) {
           if (!this.program) return;
@@ -1613,7 +1614,7 @@
           let r2 = r1 + this.random.range(0.5, 2);
           let luminocity = this.random.range(0.5, 0.8);
           this.rings = {
-            angle: this.random.range(0.05, 0.2),
+            exc: this.random.range(0.05, 0.2),
             size: r2,
             innerradius: r1/r2,
             random: this.random.rand()*1000,
@@ -2086,7 +2087,7 @@
               scaledPos.x, 
               scaledPos.y,
               this.radius*this.rings.size*trans.scale,
-              this.radius*this.rings.size*this.rings.angle*trans.scale,
+              this.radius*this.rings.size*this.rings.exc*trans.scale,
               this.rotation
             );
           }
