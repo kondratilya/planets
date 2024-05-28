@@ -1996,7 +1996,7 @@
         } else {
           if (scale) {
             let ds = scale - this.trans.scale;
-            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/50;
+            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(window.scaleSpeed||100);
           }
           let d = Point.fromPos(pos).sub(this.unscaledPos);
           this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
@@ -2342,7 +2342,7 @@
 
           window.scale = start.scale * imageElementScale;
           window.scale = Math.min(Math.max(0.05, window.scale), 1);
-
+          window.scaleSpeed = 20;
           /*const x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
           const y = (event.touches[0].pageX + event.touches[1].pageX) / 2;
 
@@ -2360,6 +2360,7 @@
       imageElement.addEventListener('touchend', (event) => {
         console.log('touchend');
         window.scale = false;
+        window.scaleSpeed = false;
         //window.pos = false;
       });
     }
