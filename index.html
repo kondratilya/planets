@@ -63,7 +63,7 @@
         float amplitude = 1.0, frequency = 1.0;
         float n = 0.0;
 
-        for(int o = 0; o < 7; o++){
+        for(int o = 0; o < 8; o++){
           n += amplitude * snoise(pos/params.x*frequency);
           amplitude *= params.y;
           frequency *= params.z;
@@ -239,6 +239,7 @@
       uniform vec4 u_heightmap;
       uniform vec4 u_moisturemap;
       uniform float u_random;
+      uniform vec2 u_grain;
 
       void main() {
         float height, moisture;
@@ -258,8 +259,8 @@
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
           height =   noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         }
-
-        gl_FragColor = vec4(height, moisture, 0, 1);
+        float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
+        gl_FragColor = vec4(height, moisture, grain, 1);
       }
     </script>
 
@@ -372,7 +373,6 @@
     <script id="fragment-shader-fill" type="notjs">
       varying vec2 v_rpos;
       uniform vec3 u_color;
-
       void main() {
         gl_FragColor = vec4(u_color, 1);
       }
@@ -474,33 +474,44 @@
       uniform float u_random;
       uniform float u_seashine;
 
+      uniform vec4 u_clouds;
+      uniform float u_wind;
+      uniform float u_cloudy;
+      uniform float u_cloudchange;
+      uniform float u_glow;
+      uniform int u_atmosphere;
+
       vec3 color(float longtitude, vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
         float el = u_climate.y + (u_climate.x-u_climate.y) * (1.0-sin(longtitude)) + pow(height, 3.0);
 
-        vec3 land = vec3(height)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
+        vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
         if (height < 0.5) {
-          vec3 sea = min(u_seacolor*max(height, 0.2), 1.0);
+          vec3 sea = min(u_seacolor*max(height, 0.2)+tex.z, 1.0);
           if (light > 0.0 && u_seashine > 1.0){
             sea += pow(light, u_seashine);
           }
           land = mix(sea, land, smoothstep(0.3, 0.5, height));
         } 
         if(el > 2.5-moisture) {
-          vec3 snow = vec3(el-1.0);
+          vec3 snow = vec3(el-1.0+tex.z);
           land = mix(land, snow, smoothstep(2.5, 2.9, el+moisture));
         }
         return land;
       }
 
       vec3 color1(vec4 tex) {
-        return vec3(tex.x)*u_groundcolor + vec3(1.0-tex.y)*u_groundcolor2;
+        return vec3(tex.x)*u_groundcolor + vec3(1.0-tex.y)*u_groundcolor2 + tex.z*(u_seacolor);
+      }
+
+      vec3 clouds(float v) {
+        return vec3(max(0.0, v-u_cloudy));
       }
 
       void main() {
-        vec3 colour_value;
+        vec3 colour_value, clouds_value;
         float light;
         float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
 
@@ -520,53 +531,7 @@
           } else {
             colour_value = color1(tex);
           }
-          
-          colour_value = colour_value;
 
-          gl_FragColor = vec4(colour_value * max(light, u_lightambient) * u_lightcolor * u_albedo , smoothstep(1.,0.95,lengthSq2));
-        } else {
-          discard;
-        }
-      }
-    </script>
-
-    <script id="fragment-shader-planet-atmosphere" type="notjs">
-      varying vec2 v_rpos;
-
-      uniform vec4 u_clouds;
-      uniform float u_wind;
-      uniform float u_cloudy;
-      uniform float u_cloudchange;
-      uniform vec3 u_lightdirection;
-      uniform vec3 u_lightcolor;
-      uniform float u_lightambient;
-      uniform float u_albedo;
-      uniform float u_rotation;
-      uniform float u_random;
-      uniform float u_glow;
-      uniform float u_jpfactor;
-      uniform int u_type;
-
-      vec3 clouds(float v) {
-        return vec3(max(0.0, v-u_cloudy));
-      }
-
-      void main() {
-        vec3 clouds_value;
-        float light;
-        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
-
-        if (lengthSq2 < 1.0) {
-          vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
-
-          float jpfactor = 1.;
-          //if (u_type == 4 || u_type == 5) jpfactor = u_jpfactor;
-          vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y * jpfactor + u_random + 20000.0, u_rotation * u_cloudchange);
-
-          vec4 clouds1 = u_clouds;
-          clouds1.y*=(2.-pow(lengthSq2, 4.))/2.;
-          clouds1.w*=(lengthSq2+1.);
-          clouds_value = clouds(noize_harm(noizeCoord, clouds1));
           light = dot(
             normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2))), 
             normalize(u_lightdirection) 
@@ -574,9 +539,19 @@
 
           vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
+          light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
-          gl_FragColor = vec4(clouds_value * max(light, u_lightambient) * u_lightcolor * u_albedo, clouds_value/2. * (1.-smoothstep(0.95,1.,lengthSq2)));
-          gl_FragColor += vec4(glow*vec3(1),glow*u_glow);
+          if (u_atmosphere > 0) {
+            vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
+            vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y + u_random + 20000.0, u_rotation * u_cloudchange);
+            vec4 clouds1 = u_clouds;
+            clouds1.y*=(2.-pow(lengthSq2, 4.))/2.;
+            clouds1.w*=(lengthSq2+1.);
+            clouds_value = clouds(noize_harm(noizeCoord, clouds1));
+            clouds_value += glow/5.*u_glow;
+          }
+
+          gl_FragColor = vec4((colour_value+clouds_value)/2. * max(light, u_lightambient) * u_lightcolor * u_albedo, smoothstep(1.,0.95,lengthSq2));
         } else {
           discard;
         }
@@ -653,6 +628,38 @@
       uniform sampler2D u_image;
       void main() {
         gl_FragColor = texture2D(u_image, v_rpos);
+      }
+    </script>
+
+    <script id="vertex-shader-orbit" type="notjs">
+      #define M_PI 3.1415926535897932384626433832795
+      attribute vec2 a_position;
+      uniform vec2 u_resolution;
+      
+      uniform vec2 u_position;
+      uniform vec2 u_scale;
+      
+      varying vec2 v_rpos;
+      varying float v_lengthSoFar;
+
+      void main() {
+        vec2 position = a_position*u_scale + u_position;
+        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        v_rpos = a_position;
+        v_lengthSoFar = atan(abs(a_position.y), a_position.x);
+      }
+    </script>
+
+    <script id="fragment-shader-orbit" type="notjs">
+      varying vec2 v_rpos;
+      varying float v_lengthSoFar;
+
+      uniform vec3 u_color;
+      uniform float u_dashes;
+
+      void main() {
+        gl_FragColor = vec4(u_color, (cos(v_lengthSoFar*u_dashes)+1.)*0.5);
       }
     </script>
 
@@ -1023,7 +1030,6 @@
           gl.enable(gl.BLEND);
           // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
           gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
-
         }
         addProgram(name, program) {
           this.programs[name] = program;
@@ -1058,16 +1064,9 @@
         }
         orbit(params, x, y, r) {
           if (!this.program) return;
-          let positions = [];
-          for (let i=0;i<Math.PI*2;i+=Math.PI*2/r) {
-
-            positions.push(Math.cos(i));
-            positions.push(Math.sin(i));
-          }
-          this.setPositions(positions);
           this.program.setParams(Object.assign({position: [x, y], scale: [r, r]}, params));
           // this.gl.drawArrays(this.gl.LINE_LOOP, 0, this.count);
-          this.gl.drawArrays(this.gl.LINES, 0, this.count);
+          this.gl.drawArrays(this.gl.LINE_LOOP, 0, this.count);
           // this.gl.lineWidth(0.5);
           // this.gl.drawArrays(this.gl.LINE_LOOP, 0, 6);
         }
@@ -1205,7 +1204,7 @@
         params = new URLSearchParams(window.location.search);
         switch (param) {
           case 'population': return Math.max(10, 100 - (params.get('population') || 40));
-          case 'id': return params.get('id') || Math.random();
+          case 'id': return (window.location.hash?window.location.hash.substring(1):false) || params.get('id') || Math.random();
         }
       }
 
@@ -1268,19 +1267,19 @@
           let f = (this.mass / dist**2) * G;
           obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
 
-  // let objScaledPos = obj.pos.scaled(mr.trans);
-  // let force = Point.fromPos(obj.pos).sub(this.pos).norm().mul(f).mul(-10000);
-  // let forceScaledPos = Point.fromPos(obj.pos).add(force).scaled(mr.trans);
-  // mr.ctx.strokeStyle = '#fff';
-  // mr.ctx.lineWidth=2;
-  // mr.ctx.setLineDash([]);
-  // mr.ctx.beginPath();
-  // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
-  // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
-  // mr.ctx.stroke();
-  // mr.ctx.beginPath();
-  // mr.ctx.arc(objScaledPos.x, objScaledPos.y, obj.r*mr.trans.scale, 0, 2 * Math.PI);
-  // mr.ctx.stroke();
+          // let objScaledPos = obj.pos.scaled(mr.trans);
+          // let force = Point.fromPos(obj.pos).sub(this.pos).norm().mul(f).mul(-10000);
+          // let forceScaledPos = Point.fromPos(obj.pos).add(force).scaled(mr.trans);
+          // mr.ctx.strokeStyle = '#fff';
+          // mr.ctx.lineWidth=2;
+          // mr.ctx.setLineDash([]);
+          // mr.ctx.beginPath();
+          // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
+          // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
+          // mr.ctx.stroke();
+          // mr.ctx.beginPath();
+          // mr.ctx.arc(objScaledPos.x, objScaledPos.y, obj.r*mr.trans.scale, 0, 2 * Math.PI);
+          // mr.ctx.stroke();
         }
         gravitate(obj) {
           for (let i=0; i<this.satelites.length; ++i)
@@ -1376,6 +1375,7 @@
             groundcolor2: [1.41, 0.24, 0.33],
             seacolor: [0.0, 0.2, 1],
             moisturemap: [10, 0.6, 2.5, 1],
+            grain: [0.5, 0.2],
             clouds: [3, 0.8, 2.5, 0.9],
             wind: 1.2,
             cloudy: 0.4,
@@ -1384,7 +1384,7 @@
             lightambient: 0.2,
             seashine: {mean: 2, dev: 5,},
             albedo: {mean: 0.5, dev: 0.1, min: 0.1},
-            glow: 0.25,
+            glow: 3,
             atmosphere: 1,
           },
           {
@@ -1410,12 +1410,18 @@
               {min: 0, max: 2,},
               {min: 0, max: 2,},
             ],
+            seacolor: [
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+              {min: 0, max: 2,},
+            ],
             moisturemap: [
               {mean: 10, dev: 5,},
               {mean: 0.5, dev: 0.1,},
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
+            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 6, dev: 1,},
               {mean: 0.6, dev: 0.2, max: 1.2},
@@ -1445,76 +1451,9 @@
               mean: 0.5, dev: 0.1, min: 0.1,
             },
             glow: {
-              mean: 0.1, dev: 0.4, min: 0
+              mean: 2.5, dev: 3, max: 5
             },
             atmosphere: {'set': [1]},
-          },
-          {
-            type: {
-              'set': [0,1,2,3],
-            },
-            jpfactor: {
-              mean: 10, dev: 1,
-            },
-            heightmap: [
-              {mean: 10, dev: 1, min: 1},
-              {mean: 0.6, dev: 0.1,},
-              {mean: 2.5, dev: 0.2,},
-              {mean: 1, dev: 0.01,},
-            ],
-            groundcolor: [
-              {mean: 0.1, dev: 0.01,},
-              {mean: 0.8, dev: 0.01,},
-              {mean: 0.1, dev: 0.01,},
-            ],
-            groundcolor2: [
-              {mean: 1.41, dev: 0.01,},
-              {mean: 0.24, dev: 0.01,},
-              {mean: 0.33, dev: 0.01,},
-            ],
-            seacolor: [
-              {mean: 0.0, dev: 0.01,},
-              {mean: 0.2, dev: 0.01,},
-              {mean: 1, dev: 0.01,},
-            ],
-            moisturemap: [
-              {mean: 10, dev: 1,},
-              {mean: 0.6, dev: 0.01,},
-              {mean: 2.5, dev: 0.02,},
-              {value: 1,},
-            ],
-            clouds: [
-              {mean: 3, dev: 1,},
-              {mean: 0.9, dev: 0.1, max: 1.2},
-              {mean: 2.5, dev: 0.2,},
-              {mean: 0.9, dev: 0.2,},
-            ],
-            wind: {
-              mean: 1.2, dev: 0.2, min: 1.0,
-            },
-            cloudy: {
-              mean: 0.3, dev: 0.1,
-            },
-            cloudchange: {
-              mean: 0.1, dev: 0.001,
-            },
-            climate: [
-              {mean: 2, dev: 0.3, min: 0},
-              {value: 0,},
-            ],
-            lightambient: {
-              mean: 0.2, dev: 0.1,
-            },
-            seashine: {
-              mean: 2, dev: 5,
-            },
-            albedo: {
-              mean: 0.5, dev: 0.1, min: 0.1,
-            },
-            glow: {
-              mean: 0.0, dev: 0.5, min: 0
-            },
-            atmosphere: {'set': [1,1,0]},
           },
           {
             type: {
@@ -1550,6 +1489,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
+            grain: [{min: 0, max: 1,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 3, dev: 1,},
               {mean: 0.9, dev: 0.2, max: 1.2},
@@ -1579,7 +1519,7 @@
               mean: 0.5, dev: 0.1, min: 0.1,
             },
             glow: {
-              mean: 0.0, dev: 0.5, min: 0
+              mean: 2.5, dev: 3, max: 5
             },
             atmosphere: {'set': [1,1,0]},
           },
@@ -1603,10 +1543,6 @@
           this.params.rotation = this.orbit.rotationAngle;
           this.program = window.renderer.programs['planet'];
           super.drawOne(trans);
-          if (this.params.atmosphere) {
-            this.program = window.renderer.programs['planet-atmosphere'];
-            super.drawOne(trans);
-          }
         }
         generateRings() {
           let r1 = this.random.range(1.1, 2);
@@ -1625,7 +1561,7 @@
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
-          this.params.image = window.renderer.texture(this.params, 512, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {});
+          this.params.image = window.renderer.texture(this.params, 1024, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {});
         }
       }
       class Sun extends CelestialBody {
@@ -1784,35 +1720,35 @@
 
           this.dp.add(this.gdp);
 
-  // let objScaledPos = this.pos.scaled(mr.trans);
-  // let forceScaledPos = Point.fromPos(this.pos).add(new Point(this.gdp).mul(-10000)).scaled(mr.trans);
-  // mr.ctx.strokeStyle = '#f00';
-  // mr.ctx.lineWidth=2;
-  // mr.ctx.setLineDash([]);
-  // mr.ctx.beginPath();
-  // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
-  // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
-  // mr.ctx.stroke();
+          // let objScaledPos = this.pos.scaled(mr.trans);
+          // let forceScaledPos = Point.fromPos(this.pos).add(new Point(this.gdp).mul(-10000)).scaled(mr.trans);
+          // mr.ctx.strokeStyle = '#f00';
+          // mr.ctx.lineWidth=2;
+          // mr.ctx.setLineDash([]);
+          // mr.ctx.beginPath();
+          // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
+          // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
+          // mr.ctx.stroke();
           let sp=1;
           let ts = 1;
           if (mr.manNewPos) {
-                let mod = (a, n) => (a % n + n) % n;
-                let diff = new Point(mr.manNewPos.pos).sub(this.pos)
-                let ga = diff.ang();
-                let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
-                
-                if (diff.len() < 5000)ts += (diff.len()-5000)/5000;
-                if (da < 0){this.thrust.l = true;this.thrust.r=false;}
-                if (da > 0){this.thrust.r = true;this.thrust.l=false;}
-                this.thrust.u = true;
-                               
-                if (diff.len() < 2000)sp = 0.5;
-                if (diff.len() < this.r+(mr.manNewPos.radius || 200)) {
-                  mr.manNewPos = false;
-                  this.thrust.u = false;
-                  this.thrust.r = false;
-                  this.thrust.l = false;
-                }
+            let mod = (a, n) => (a % n + n) % n;
+            let diff = new Point(mr.manNewPos.pos).sub(this.pos)
+            let ga = diff.ang();
+            let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+            
+            if (diff.len() < 5000)ts += (diff.len()-5000)/5000;
+            if (da < 0){this.thrust.l = true;this.thrust.r=false;}
+            if (da > 0){this.thrust.r = true;this.thrust.l=false;}
+            this.thrust.u = true;
+                           
+            if (diff.len() < 2000)sp = 0.5;
+            if (diff.len() < this.r+(mr.manNewPos.radius || 200)) {
+              mr.manNewPos = false;
+              this.thrust.u = false;
+              this.thrust.r = false;
+              this.thrust.l = false;
+            }
           }
 
           let wasOnPlanet = this.onPlanet;
@@ -1912,6 +1848,8 @@
           if (!this.thrust.on && !this.onPlanet) {
             let mod = (a, n) => (a % n + n) % n;
             let ga = this.gdp.ang();
+            if (this.pos.len() > 10000)
+              ga += Math.PI;
             let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
             this.a += da/150;
           }
@@ -1966,16 +1904,20 @@
         if (canvas.getContext) {
           this.width = this.canvas.getBoundingClientRect().width;
           this.height = this.canvas.getBoundingClientRect().height;
-          this.ctx = this.canvas.getContext('2d');
-          this.ctx.lineWidth = 3;
-          this.ctx.fillStyle = '#000000';
-          this.ctx.fillRect(0, 0, this.width, this.height);
+          // this.ctx = this.canvas.getContext('2d');
+          // this.ctx.lineWidth = 3;
+          // this.ctx.fillStyle = '#000000';
+          // this.ctx.fillRect(0, 0, this.width, this.height);
 
-          this.planetsCanvas = document.createElement('canvas');
-          this.planetsCanvas.width = this.width;
-          this.planetsCanvas.height = this.height;
+          // this.planetsCanvas = document.createElement('canvas');
+          // this.planetsCanvas.width = this.width;
+          // this.planetsCanvas.height = this.height;
 
-          const renderer = new Renderer(this.planetsCanvas);
+          const renderer = new Renderer(this.canvas);
+
+
+          new Program(renderer, "orbit", "#vertex-shader-orbit", "#fragment-shader-orbit");
+          new Program(renderer, "fill", "#vertex-shader-2d", "#fragment-shader-fill");
 
           new Program(renderer, "sun", "#vertex-shader-2d", "#fragment-shader-sun");
           new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
@@ -1986,7 +1928,6 @@
           new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
 
           new Program(renderer, "planet-texture", "#vertex-shader-2d", "#fragment-shader-planet-texture");
-          new Program(renderer, "planet-atmosphere", "#vertex-shader-2d", "#fragment-shader-planet-atmosphere");
           new Program(renderer, "planet", "#vertex-shader-2d", "#fragment-shader-planet");
 
           new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
@@ -2030,6 +1971,12 @@
           this.genarateStars();
 
           this.frame = 0;
+
+          this.orbitPositions = [];
+          for (let i=0;i<Math.PI*2;i+=Math.PI*2/100) {
+            this.orbitPositions.push(Math.cos(i));
+            this.orbitPositions.push(Math.sin(i));
+          }
         }
       };
 
@@ -2072,13 +2019,12 @@
 
       MovingRect.prototype.drawStars = function() {
         let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
-        window.renderer.setPositions();
         window.renderer.useProgram('space');
         window.renderer.render({image:this.stars}, d.x, d.y, 1024);
       }
 
       MovingRect.prototype.drawPlanetsRings = function(far) {
-        function drawRings(ctx, trans, far) {
+        function drawRings(trans, far) {
           if (this.rings) {
             let scaledPos = this.pos.scaled(trans);
             window.renderer.render(
@@ -2092,52 +2038,42 @@
           }
         }
         window.renderer.useProgram('rings');
-        this.sun.eachSatelite(drawRings, this.ctx, this.trans, far);
+        this.sun.eachSatelite(drawRings, this.trans, far);
       }
 
       MovingRect.prototype.drawPlanets = function() {
-        function drawOrbit(ctx, trans) {
-          if (window.hideOrbits) {
-            // if (this.drawOrbit && this.orbit.radius>0) {
-            //   let scaledPos = this.parent.pos.scaled(trans);
-            //   window.renderer.useProgram('man');
-            //   window.renderer.orbit({color:[0.7,0.7,0.7]}, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
-            //   renderer.setPositions();
-            // }
-            return;
-          }
+        function drawOrbit(trans) {
           if (this.drawOrbit && this.orbit.radius>0) {
             let scaledPos = this.parent.pos.scaled(trans);
-            ctx.setLineDash([4, 2]);
-            ctx.lineWidth = 0.5;
-            ctx.strokeStyle = this.orbitColor ? `rgb(${this.orbitColor[0]*255}, ${this.orbitColor[1]*255}, ${this.orbitColor[2]*255})` : '#777';
-            ctx.beginPath();
-            ctx.arc(scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale, 0, 2 * Math.PI);
-            ctx.stroke();
+            window.renderer.useProgram('orbit');
+            let dashes =  Math.ceil(this.orbit.radius*trans.scale);
+            params = {color:this.params.groundcolor, dashes:dashes};
+            window.renderer.orbit(params, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
           }
         }
-        this.sun.eachSatelite(drawOrbit, this.ctx, this.trans);
+
+        if (!window.hideOrbits) {
+          renderer.setPositions(this.orbitPositions);
+          this.sun.eachSatelite(drawOrbit, this.trans);
+          renderer.setPositions();
+        }
+
         this.sun.draw(this.trans);
+
         if (this.man && this.man.onPlanet) {
-          window.renderer.setPositions();
           window.renderer.useProgram('planet');
           window.renderer.render(this.man.onPlanet.params, 150, 150, 125, this.man.onPlanet.rotation);
-          if (this.man.onPlanet.params.atmosphere) {
-            window.renderer.useProgram('planet-atmosphere');
-            window.renderer.render(this.man.onPlanet.params, 150, 150, 125, this.man.onPlanet.rotation);
-          }
         }
       }
 
       MovingRect.prototype.drawMan = function() {
-
-        if (this.manNewPos) {
-          let scaledPos = this.manNewPos.pos.scaled(this.trans);  
-          this.ctx.fillStyle = '#f00';
-          this.ctx.beginPath();
-          this.ctx.arc(scaledPos.x, scaledPos.y, 10, 0, 2 * Math.PI);
-          this.ctx.fill();
-        }
+        // if (this.manNewPos) {
+        //   window.renderer.useProgram('fill');
+        //   // renderer.setPositions(this.orbitPositions);
+        //   let scaledPos = this.manNewPos.pos.scaled(this.trans);  
+        //   window.renderer.render({color:[1,0,0]}, scaledPos.x, scaledPos.y, 10);
+        //   // renderer.setPositions();
+        // }
 
         let scaledPos = this.man.pos.scaled(this.trans);
         let t, a = this.man.a;
@@ -2184,7 +2120,6 @@
         t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
         window.renderer.useProgram('rocket');
         window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 30, 30, -a+Math.PI/2);
-        renderer.setPositions();
       }
 
       MovingRect.prototype.moveRockets = function() {
@@ -2210,29 +2145,10 @@
           renderer.setPositions();
           window.renderer.useProgram('missile');
           window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
-         
-          
-          // let spe = rocket.pos.scaled(this.trans).sub(Point.fromPolar(rocket.a, 20));
-
-          // this.ctx.strokeStyle = '#fff';
-          // this.ctx.setLineDash([]);
-          // this.ctx.lineWidth = 3;
-          // this.ctx.beginPath();
-          // this.ctx.moveTo(sps.x,sps.y);
-          // this.ctx.lineTo(spe.x, spe.y);
-          // this.ctx.stroke();
-          // if (rocket.fuel > 0) {
-          //   this.ctx.fillStyle = '#fe0';
-          //   this.ctx.beginPath();
-          //   this.ctx.arc(sps.x,sps.y, Math.random()*4+2, 0, 2 * Math.PI);
-          //   this.ctx.fill();
-          // }
         }
       }
 
       MovingRect.prototype.draw = function() {
-        this.ctx.fillStyle = "rgb(0,0,0)";
-        this.ctx.fillRect(0, 0, canvas.width, canvas.height);
         window.renderer.clear();
         this.drawStars();
         if (!window.paused)        
@@ -2242,16 +2158,12 @@
         this.moveRockets();
 
         this.drawPlanetsRings(true);
-
-this.ctx.drawImage(window.renderer.gl.canvas, 0, 0);
-window.renderer.clear();
-
         this.drawPlanets();
         this.drawRockets();
         if (this.man)
           this.drawMan();
         this.drawPlanetsRings(false);
-        this.ctx.drawImage(window.renderer.gl.canvas, 0, 0);
+        // this.ctx.drawImage(window.renderer.gl.canvas, 0, 0);
 
         if (this.man) {
           let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
@@ -2269,7 +2181,7 @@ window.renderer.clear();
     </script>
   </head>
   <body style="margin: 0px; overflow: hidden">
-    <canvas id="canvas" width="500" height="500" style="margin: 0px; overflow: hidden; touch-action: none;"></canvas>
+    <canvas id="canvas" width="500" height="500" style="background: #000; margin: 0px; overflow: hidden; touch-action: none;"></canvas>
   </body>
   <script>
     const canvas = document.getElementById('canvas');
