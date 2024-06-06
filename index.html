@@ -71,6 +71,18 @@
         return (n+1.0/2.0) * params.w;
       } 
 
+      float noize_harm4(vec3 pos, vec4 params) {
+        float amplitude = 1.0, frequency = 1.0;
+        float n = 0.0;
+
+        for(int o = 0; o < 4; o++){
+          n += amplitude * snoise(pos/params.x*frequency);
+          amplitude *= params.y;
+          frequency *= params.z;
+        }
+        return (n+1.0/2.0) * params.w;
+      } 
+
       //  Simplex 4D Noise 
       //  by Ian McEwan, Stefan Gustavson (https://github.com/stegu/webgl-noise)
       float permute(float x){return floor(mod(((x*34.0)+1.0)*x, 289.0));}
@@ -216,7 +228,7 @@
       uniform vec2 u_position;
       uniform vec2 u_scale;
       uniform float u_angle;
-      varying vec2 v_rpos;
+      varying vec2 v_rpos, v_tpos;
 
       void main() {
         vec2 rotation = vec2(sin(u_angle), cos(u_angle));
@@ -228,6 +240,7 @@
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
         gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
         v_rpos = a_position;
+        v_tpos = (v_rpos+1.)/2.;
       }
     </script>
 
@@ -311,16 +324,17 @@
       uniform float u_random;
       uniform float u_innerradius;
       vec4 noize = vec4(2,0.8,2.5,1);
+
+      float v(float length) {
+        return clamp(noize_harm(vec3(length, 0, u_random), noize), 0., 1.);
+      }
+
       void main() {
         float length = length(v_rpos);
         if (length > u_innerradius && length < 1.0) {
           float a = atan(v_rpos.y, v_rpos.x);
-          float d = (cos((a+M_PI)*2.)+1.)/2.;
-          //noize.y*=d;
-          //noize.w /=d;
-          float x = noize_harm(vec3(length, 0, u_random), noize);
-
-          gl_FragColor = vec4(x, a < 0.0, 0, smoothstep(1.,0.8,length) * smoothstep(u_innerradius,u_innerradius+0.1,length));
+          float x = v(length);
+          gl_FragColor = vec4(x * smoothstep(1.,0.8,length) * smoothstep(u_innerradius,u_innerradius+0.1,length), a < 0.0, 0, 1);
         } else {
           discard;
         }
@@ -328,7 +342,7 @@
     </script>
 
     <script id="fragment-shader-rings" type="notjs">
-      varying vec2 v_rpos;
+      varying vec2 v_rpos, v_tpos;
 
       uniform sampler2D u_image;
       uniform vec3 u_color;
@@ -338,13 +352,13 @@
       uniform float u_innerradius;
 
       void main() {
-        float length = length(v_rpos);
+        float len = length(v_rpos);
         float a = atan(v_rpos.y, v_rpos.x);
-        int side = int(a < 0.0);
-        if (u_bf == side && length > u_innerradius && length < 1.0) {
-          vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5, cos((a+M_PI/2.)*2.)*2.);
-          //vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5, -10.);
-          gl_FragColor = vec4(u_color, tex.x * tex.w * (1.0-u_transparency));
+        float side_mask = float(u_bf == int(a < 0.0));
+
+        if (len > u_innerradius && len < 1.0) {
+          vec4 tex = texture2D(u_image, v_tpos, cos((a+M_PI/2.)*2.)*2.);
+          gl_FragColor = vec4(u_color, tex.x * side_mask * (1.0-u_transparency));
         } else {
           discard;
         }
@@ -421,7 +435,6 @@
           if (abs(v_rpos.x)<(y-0.5)) {
             a = smoothstep((y-0.5),(y-0.5)*0.85,abs(v_rpos.x));
             gl_FragColor = vec4(u_color, a);
-
           } 
         }
         if (abs(v_rpos.x)<w) {
@@ -506,7 +519,7 @@
           land = mix(sea, land, smoothstep(0.5-moisture/10., 0.5, height));
         } 
         if(el > 2.5-moisture) {
-          vec3 snow = vec3(el-1.0+tex.z);
+          vec3 snow = vec3(el-1.0+tex.z)*2.;
           land = mix(land, snow, smoothstep(2.5, 2.6, el+moisture));
         }
         return land;
@@ -515,7 +528,7 @@
       vec3 color_lava(float longtitude, vec4 tex, vec4 tex1, float light) {
         float height = pow(tex.x, 4.);
         float moisture = tex.y;
-        float waterlevel = 0.4;//tex2.x-0.2;
+        float waterlevel = 0.3;//tex2.x-0.2;
 
         vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
@@ -648,7 +661,7 @@
 
       void main() {
         vec2 clipSpace = a_position * 2.0 - 1.0;
-        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        gl_Position = vec4(clipSpace * vec2(1, -1), 1, 1);
         v_rpos = (a_position - u_position / u_scale) * u_resolution / u_scale;
       }
     </script>
@@ -675,7 +688,7 @@
       void main() {
         vec2 position = a_position*u_scale + u_position;
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
-        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0.9, 1);
         v_rpos = a_position;
         v_lengthSoFar = atan(abs(a_position.y), a_position.x);
       }
@@ -1072,8 +1085,11 @@
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
           gl.enable(gl.BLEND);
+          gl.depthFunc(gl.LESS);
           // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
           gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
+
+          this.fb = gl.createFramebuffer();
           canvas.addEventListener('webglcontextlost', (event) => {
             window.location.reload();
           });
@@ -1129,15 +1145,14 @@
           gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
                       targetTextureWidth, targetTextureHeight, border,
                       format, type, data);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, texParams['MIN_FILTER'] || gl.LINEAR_MIPMAP_LINEAR);
+          let minFilter = texParams['MIN_FILTER'] || gl.LINEAR_MIPMAP_LINEAR;
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, texParams['MAG_FILTER'] || gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, texParams['WRAP'] || gl.REPEAT);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texParams['WRAP'] || gl.REPEAT);
           gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-          const fb = gl.createFramebuffer();
-          gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-          const attachmentPoint = gl.COLOR_ATTACHMENT0;
-          gl.framebufferTexture2D( gl.FRAMEBUFFER, attachmentPoint, gl.TEXTURE_2D, targetTexture, level);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, level);
           this.setPositions(positions);
           let box = {};
           for (let i=0; i<this.positions.length; ++i){
@@ -1154,7 +1169,9 @@
           gl.viewport(0, 0, targetTextureWidth, targetTextureHeight);
           gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), targetTextureWidth, targetTextureHeight);
           this.render(params, targetTextureWidth*(-box.x1/box.w), targetTextureHeight*(-box.y1/box.h), targetTextureWidth/box.w, targetTextureHeight/box.h, 0);
-          gl.generateMipmap(gl.TEXTURE_2D);
+          if (minFilter == gl.LINEAR_MIPMAP_LINEAR || minFilter == gl.LINEAR_MIPMAP_NEAREST || minFilter == gl.NEAREST_MIPMAP_LINEAR || minFilter == gl.LINEAR_MIPMAP_LINEAR) {
+            gl.generateMipmap(gl.TEXTURE_2D);
+          }
           gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           return targetTexture;
@@ -1463,7 +1480,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.5,}],
+            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 1,}],
             clouds: [
               {mean: 6, dev: 1,},
               {mean: 0.6, dev: 0.2, max: 1.2},
@@ -2229,13 +2246,14 @@
 
       MovingRect.prototype.draw = function() {
         window.renderer.clear();
-        this.drawStars();
+        
         if (!window.paused)        
           this.sun.move();
         if (this.man)
           this.man.move(this.sun);
         this.moveRockets();
 
+        this.drawStars();
         this.drawPlanetsRings(true);
         this.drawPlanets();
         this.drawRockets();
