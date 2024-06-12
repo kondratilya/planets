@@ -265,6 +265,38 @@
       }
     </script>
 
+    <script id="fragment-shader-planet-lava-glow" type="notjs">
+      #define q 0.1
+      #define r 30.
+      varying vec2 v_rpos;
+      uniform sampler2D u_image;
+      uniform vec2 u_resolution;
+
+      float v(vec2 p) {
+        vec4 t = texture2D(u_image, (v_rpos/2.0)+p);
+        float h = t.x;
+
+        return h<0.3?1.:0.;
+      }
+
+      void main() {
+        vec2 pixel = vec2(1.0, 1.0) / u_resolution;
+        float h=0., n=0.;
+
+        for (float x=-r;x<=r;++x) {
+          for (float y=-r;y<=r;++y) {
+            vec2 p = vec2(x,y), p1 = p/r;
+            float t = max(0., (1.-length(p1)));
+            h += v(pixel*vec2(x,y))*t;
+            n+=t;
+          }
+        }
+
+        gl_FragColor = texture2D(u_image, (v_rpos/2.0));
+        gl_FragColor.z = h/n/4.;
+      }
+    </script>
+
     <script id="fragment-shader-planet" type="notjs">
       varying vec2 v_rpos;
       varying vec2 v_tpos;
@@ -311,20 +343,19 @@
         return land;
       }
 
-      vec3 color_lava(float longtitude, vec4 tex, vec4 tex1, float light) {
-        float height = pow(tex.x, 4.);
+      vec3 color_lava(float longtitude, vec4 tex, float light) {
+        float height = tex.x;
         float moisture = tex.y;
         float waterlevel = 0.3;//tex2.x-0.2;
 
-        vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
+        vec3 land = vec3(height)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
         vec3 sea;
         if (height < waterlevel) {
           sea = min(u_seacolor*max(0.-height, 0.2)*2.5, 1.0) / max(u_lightambient, light)*5.;
+          land = mix(sea, land, smoothstep(waterlevel-0.1, waterlevel, height));
         } 
-        land = mix(sea, land, smoothstep(waterlevel-0.05, waterlevel, tex.x));
-        //land += u_seacolor * smoothstep(waterlevel+0.2, waterlevel, tex1.x) / max(u_lightambient, light)*2.;
-        land += u_seacolor * smoothstep(waterlevel+0.2, waterlevel, tex1.x) / max(u_lightambient, light)*2.;
+        land += u_seacolor * tex.z / max(u_lightambient, light)*5.;
         return land;
       }
 
@@ -333,7 +364,8 @@
       }
 
       vec3 clouds(float v) {
-        return vec3(max(0.0, v-u_cloudy));
+        float r = v-u_cloudy;
+        return vec3(r*smoothstep(0., 0.2, r));
       }
 
       void main() {
@@ -359,7 +391,7 @@
           } else {
             vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
             float longtitude = spherizedCoord.y * M_PI/2.0;
-            colour_value = color_lava(longtitude, tex, texture2D(u_image, spherizedCoordTex, 4.), light);            
+            colour_value = color_lava(longtitude, tex, light);            
           }
 
           light = dot(
@@ -374,7 +406,7 @@
           if (u_atmosphere > 0) {
             vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
             vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y + u_random + 20000.0, u_rotation * u_cloudchange);
-            clouds_value = clouds(noize_harm(noizeCoord, u_clouds*vec4(1., (2.-pow(lengthSq2, 4.))/2., 1., lengthSq2+1.)));
+            clouds_value = clouds(noize_harm(noizeCoord, u_clouds*vec4(1., (1.5-pow(lengthSq2, 4.))/2., 1., lengthSq2+1.)));
             clouds_value += glow/5.*u_glow;
           }
 
@@ -627,10 +659,11 @@
         r = noize_harm(noizeCoord+u_random*100.0+1000.0, heightmap)/10.;
         g = noize_harm(noizeCoord+u_random*200.0+2000.0, heightmap)/10.;
         b = noize_harm(noizeCoord+u_random*300.0+3000.0, heightmap)/10.;
+
         gl_FragColor = vec4(vec3(
-          pow(clamp(r, 0., 4.), 1.)*0.8,
-          pow(clamp(g, 0., 4.), 1.)*0.4,
-          pow(clamp(b, 0., 4.), 1.)*0.99
+          clamp(r, 0., 4.)*0.8,
+          clamp(g, 0., 4.)*0.4,
+          clamp(b, 0., 4.)*0.99
           )+vec3(stars()), 1
         );
       }
@@ -937,13 +970,9 @@
               };
             }
             if (type === gl.SAMPLER_2D) {
-              return function(bindPoint, unit) {
-                return function(texture) {
-                  gl.uniform1i(location, unit);
-                  gl.activeTexture(gl.TEXTURE0 + unit);
-                  gl.bindTexture(bindPoint, texture);
-                };
-              }(gl.TEXTURE_2D, textureUnit++);
+              return function(texture) {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+              };
             }
             throw ('unknown type: 0x' + type.toString(16)); // we should never get here.
           }
@@ -989,8 +1018,6 @@
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
           gl.enable(gl.BLEND);
-          // gl.depthFunc(gl.LESS);
-          // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
           gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
 
           this.fb = gl.createFramebuffer();
@@ -1034,29 +1061,17 @@
         }
         texture(params, resolution, positions, texParams) {
           const gl = this.gl;
-          const targetTextureWidth = resolution;
-          const targetTextureHeight = resolution;
           const targetTexture = gl.createTexture();
           gl.bindTexture(gl.TEXTURE_2D, targetTexture);
 
-          // define size and format of level 0
-          const level = 0;
-          const internalFormat = gl.RGBA;
-          const border = 0;
-          const format = gl.RGBA;
-          const type = gl.UNSIGNED_BYTE;
-          const data = null;
-          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-                      targetTextureWidth, targetTextureHeight, border,
-                      format, type, data);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, resolution, resolution, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
           let minFilter = texParams['MIN_FILTER'] || gl.LINEAR_MIPMAP_LINEAR;
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, texParams['MAG_FILTER'] || gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, texParams['WRAP'] || gl.REPEAT);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texParams['WRAP'] || gl.REPEAT);
-          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
           gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
-          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, level);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, 0);
           this.setPositions(positions);
           let box = {};
           for (let i=0; i<this.positions.length; ++i){
@@ -1070,9 +1085,9 @@
           }
           box.w = box.x2-box.x1;
           box.h = box.y2-box.y1;
-          gl.viewport(0, 0, targetTextureWidth, targetTextureHeight);
-          gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), targetTextureWidth, targetTextureHeight);
-          this.render(params, targetTextureWidth*(-box.x1/box.w), targetTextureHeight*(-box.y1/box.h), targetTextureWidth/box.w, targetTextureHeight/box.h, 0);
+          gl.viewport(0, 0, resolution, resolution);
+          gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), resolution, resolution);
+          this.render(params, resolution*(-box.x1/box.w), resolution*(-box.y1/box.h), resolution/box.w, resolution/box.h, 0);
           if (minFilter == gl.LINEAR_MIPMAP_LINEAR || minFilter == gl.LINEAR_MIPMAP_NEAREST || minFilter == gl.NEAREST_MIPMAP_LINEAR || minFilter == gl.LINEAR_MIPMAP_LINEAR) {
             gl.generateMipmap(gl.TEXTURE_2D);
           }
@@ -1337,9 +1352,9 @@
             heightmap: [10, 0.6, 2.5, 0.8],
             groundcolor: [0.1, 0.8, 0.1],
             groundcolor2: [1.41, 0.24, 0.33],
-            seacolor: [0.0, 0.2, 1],
+            seacolor: [0.0, {min:0.2, max: 0.4}, 1],
             moisturemap: [10, 0.6, 2.5, 1],
-            grain: [0.5, 0.2],
+            grain: [0.5, 0.1],
             clouds: [3, 0.8, 2.5, 0.9],
             wind: 1.2,
             cloudy: 0.4,
@@ -1384,7 +1399,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 1,}],
+            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.25,}],
             clouds: [
               {mean: 6, dev: 1,},
               {mean: 0.6, dev: 0.2, max: 1.2},
@@ -1488,7 +1503,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [{min: 0, max: 1,}, {min: 0, max: 0.5,}],
+            grain: [{min: 0, max: 1,}, {min: 0, max: 0.25,}],
             clouds: [
               {mean: 3, dev: 1,},
               {mean: 0.9, dev: 0.2, max: 1.2},
@@ -1558,11 +1573,15 @@
             transparency: this.random.range(0.6, 0.8),
           };
           window.renderer.useProgram('rings-texture');
-          this.rings.image = window.renderer.texture(this.rings, 2048, false, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
+          this.rings.image = window.renderer.texture(this.rings, 1024, false, {});
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
-          this.params.image = window.renderer.texture(this.params, 1024, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {});
+          this.params.image = window.renderer.texture(this.params, 512, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {MIN_FILTER: window.renderer.gl.LINEAR});
+          if (this.params.coloring == 2) {
+            window.renderer.useProgram('planet-lava-glow');
+            this.params.image = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+          }
         }
       }
       class Sun extends CelestialBody {
@@ -1929,6 +1948,7 @@
           new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
 
           new Program(renderer, "planet-texture", "#vertex-shader-2d", "#fragment-shader-planet-texture");
+          new Program(renderer, "planet-lava-glow", "#vertex-shader-space", "#fragment-shader-planet-lava-glow");
           new Program(renderer, "planet", "#vertex-shader-2d", "#fragment-shader-planet");
 
           new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
@@ -2001,6 +2021,9 @@
           let d = Point.fromPos(pos).sub(this.unscaledPos);
           this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
           this.unscaledPos.y += Math.sqrt(Math.abs(d.y))*Math.sign(d.y)*2;
+          if (window.paused) {
+            this.unscaledPos = pos;
+          }
         }
         let t = Point.fromPos(this.width/2, this.height/2).sub(Point.fromPos(this.unscaledPos).mul(this.trans.scale));
         this.trans.pos = t;
@@ -2015,6 +2038,9 @@
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
         this.stars = window.renderer.texture({random:this.random.rand()}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+
+        // window.renderer.useProgram('blur');
+        // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
 
       MovingRect.prototype.drawStars = function() {
