@@ -1573,7 +1573,7 @@
             transparency: this.random.range(0.6, 0.8),
           };
           window.renderer.useProgram('rings-texture');
-          this.rings.image = window.renderer.texture(this.rings, 1024, false, {});
+          this.rings.image = window.renderer.texture(this.rings, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
@@ -2038,9 +2038,6 @@
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
         this.stars = window.renderer.texture({random:this.random.rand()}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
-
-        // window.renderer.useProgram('blur');
-        // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
 
       MovingRect.prototype.drawStars = function() {
