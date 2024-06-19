@@ -2058,7 +2058,7 @@
         } else {
           if (scale) {
             let ds = scale - this.trans.scale;
-            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(window.scaleSpeed||100);
+            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(window.scaleSpeed||200);
           }
           let d = Point.fromPos(pos).sub(this.unscaledPos);
           this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
