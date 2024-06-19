@@ -257,11 +257,12 @@
           height = noize_harm(vec3(0,noize_harm(noizeCoord, u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
         } else {
+          height = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
+          height += noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,(u_jpfactor/30.)), u_heightmap)*(u_jpfactor/30.), loopCoord.y), u_heightmap);
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
-          height =   noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         }
         float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
-        gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain, 1);
+        gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain/2., 1);
       }
     </script>
 
@@ -322,10 +323,11 @@
       uniform float u_glow;
       uniform int u_atmosphere;
 
-      vec3 color_sea(float longtitude, vec4 tex, float light) {
+      vec3 color_sea(vec2 pos, vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
-        float el = u_climate.y + (u_climate.x-u_climate.y) * (1.0-sin(longtitude)) + pow(height, 3.0);
+        float climate = (u_climate.y + (u_climate.x-u_climate.y) * (1.-cos(pos.y)));
+        float el = climate + pow(height, 3.0);
 
         vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
@@ -336,14 +338,14 @@
           }
           land = mix(sea, land, smoothstep(0.5-moisture/10., 0.5, height));
         } 
-        if(el > 2.5-moisture) {
-          vec3 snow = vec3(el-1.0+tex.z)*2.;
-          land = mix(land, snow, smoothstep(2.5, 2.6, el+moisture));
+        if(el > 0.9) {
+          vec3 snow = vec3(height/1.5+tex.z+1.);
+          land = mix(land, snow, smoothstep(0.8, 1., el));
         }
         return land;
       }
 
-      vec3 color_lava(float longtitude, vec4 tex, float light) {
+      vec3 color_lava(vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
         float waterlevel = 0.3;//tex2.x-0.2;
@@ -374,7 +376,8 @@
         float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
 
         if (lengthSq2 < 1.0) {
-          vec2 spherizedCoordTex = spherize(v_rpos)/vec2(4,2)-vec2(-u_rotation/4.0,-0.5);
+          vec2 spherized = spherize(v_rpos);
+          vec2 spherizedCoordTex = spherized/vec2(4,2)-vec2(-u_rotation/4.0,-0.5);
           vec4 tex = texture2D(u_image, spherizedCoordTex);
 
           light = dot(
@@ -385,13 +388,9 @@
           if (u_coloring == 0){
             colour_value = color(tex);
           } else if (u_coloring == 1){
-            vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
-            float longtitude = spherizedCoord.y * M_PI/2.0;
-            colour_value = color_sea(longtitude, tex, light);
+            colour_value = color_sea(spherized, tex, light);
           } else {
-            vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
-            float longtitude = spherizedCoord.y * M_PI/2.0;
-            colour_value = color_lava(longtitude, tex, light);            
+            colour_value = color_lava(tex, light);            
           }
 
           light = dot(
@@ -625,24 +624,25 @@
       uniform vec2 u_scale;
       uniform float u_rotation;
       uniform float u_random;
+      uniform float u_dust;
 
-      float star(vec2 craterpos, float scale) {
+      vec2 star(vec2 craterpos, float scale, float glow) {
         vec2 p = abs((v_rpos)-craterpos);
         p.x = min(p.x-1., p.x);
         p.y = min(p.y-1., p.y);
         float l = length(p);
-        return l < scale ? 1. - l/scale : 0.;
+        return vec2(l < scale ? 1. - l/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
-      float stars() {
-        float y = 0.;
+      vec2 stars() {
+        vec2 s;
         float pr = N2(v_rpos+vec2(u_random, 0));
         if (pr>0.99)
-          y = N2(v_rpos+100.); 
+          s.x = N2(v_rpos+100.); 
         for (float i=0.;i<300.;++i) {
            vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
-           y += star(c, pow(N2(c), 2.)/length(u_scale)*10.);
+           s += star(c, pow(N2(c), 2.)/length(u_scale)*10., 10.);
         }
-        return y;
+        return s;
       }
 
       void main() {
@@ -655,17 +655,26 @@
         );
         vec4 heightmap = vec4(10,.6,2.5,1);
 
-        float r,g,b;
+        vec2 s = stars();
+
+        float r,g,b,d=1.;
         r = noize_harm(noizeCoord+u_random*100.0+1000.0, heightmap)/10.;
         g = noize_harm(noizeCoord+u_random*200.0+2000.0, heightmap)/10.;
         b = noize_harm(noizeCoord+u_random*300.0+3000.0, heightmap)/10.;
+        if (u_dust>0.) {
+          s.x/=2.;
+          d = noize_harm(noizeCoord+u_random*300.0+4000.0, vec4(1,.7,2.5,1))+s.y;
+        }
 
         gl_FragColor = vec4(vec3(
           clamp(r, 0., 4.)*0.8,
           clamp(g, 0., 4.)*0.4,
           clamp(b, 0., 4.)*0.99
-          )+vec3(stars()), 1
+          )*d+vec3(s.x*d), 1
         );
+
+        //if (mod(v_rpos.x, 0.1)<0.01)gl_FragColor = vec4(1,0,0,1);
+        //if (mod(v_rpos.y, 0.1)<0.01)gl_FragColor = vec4(0,1,0,1);
       }
     </script>
 
@@ -690,6 +699,29 @@
       uniform sampler2D u_image;
       void main() {
         gl_FragColor = texture2D(u_image, v_rpos);
+      }
+    </script>
+
+    <script id="fragment-shader-distort" type="notjs">
+      varying vec2 v_rpos;
+      uniform sampler2D u_image;
+      uniform float u_frame;
+
+      void main() {
+
+        vec4 noize = vec4(0.3,.3,1.5,1);
+        vec2 pos = v_rpos/2.;
+        float a = noize_harm(vec3(pos, u_frame), noize);//+1.;
+        a = a * 10.;
+        //a = length(v_rpos+vec2(1));
+        vec2 d;
+        //d = vec2(noize_harm(vec3(pos, 0), noize), noize_harm(vec3(pos, 100), noize))/1.;
+        d = vec2(cos(a), sin(a)) * 0.1;//noize_harm(vec3(pos, 100.+u_frame), noize)/20.;
+        //d = vec2(cos(a-d.x), sin(a-d.y)) * noize_harm(vec3(pos, 1000), noize)/20.;
+        //d = vec2(noize_harm(vec3(pos, 0), noize), noize_harm(vec3(pos, 100), noize))/20.;
+        
+        pos.y += d.y;
+        gl_FragColor = texture2D(u_image, pos);
       }
     </script>
 
@@ -775,6 +807,10 @@
         
         this.gauss_ready = false;
         this.gauss_second = 0.0;
+
+        this.randS = function() {
+          return `${this.rand()}`.replace('0\.', '');
+        } 
         this.gauss = function(mean, dev) {
           mean = mean == undefined ? 0.0 : mean;
           dev = dev == undefined ? 1.0 : dev;
@@ -1182,7 +1218,7 @@
         params = new URLSearchParams(window.location.search);
         switch (param) {
           case 'population': return Math.max(10, 100 - (params.get('population') || 40));
-          case 'id': return (window.location.hash?window.location.hash.substring(1):false) || params.get('id') || Math.random();
+          case 'id': return (window.location.hash?window.location.hash.substring(1):false) || params.get('id') || null;
         }
       }
 
@@ -1206,7 +1242,8 @@
       class CelestialBody {
         constructor(random, parent, mass, radius, orbit) {
           this.params = {};
-          this.random = random;
+          this.seed = random instanceof Random ? `${random.randS()}` : random;
+          this.random = new Random(this.seed);
           this.parent = parent;
           this.mass = mass;
           this.radius = radius;
@@ -1315,9 +1352,6 @@
                 this.random.range(Math.PI*2)/100
               );
               const planet = new Planet(this, 4/3*Math.PI*r, r, orbit);
-              if (this.random.rand() < 0.3 && planet.radius > 100) {
-                planet.generateRings();
-              }
               planet.populate(population);
             }
           }
@@ -1344,6 +1378,7 @@
       }
 
       class Planet extends CelestialBody {
+        //'8493731133639812', '1753168327268213'
         sets = [
           { // earth
             type: 0,
@@ -1545,11 +1580,14 @@
           super(parent.random, parent, mass, radius, orbit);
           this.roll();
           this.params.lightcolor = [1, 1, 1];
-          this.params.albedo = 1;          
+          this.params.albedo = 1;
           this.rotation = this.random.range(Math.PI*2);
           this.program = window.renderer.programs.planet;
           this.orbitColor = this.params.groundcolor;
           this.generateTex();
+          if (this.random.rand() < 0.3 && radius > 100) {
+            this.generateRings();
+          }
         }
         drawOne(trans) {
           let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
@@ -1578,6 +1616,8 @@
         generateTex() {
           window.renderer.useProgram('planet-texture');
           this.params.image = window.renderer.texture(this.params, 512, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {MIN_FILTER: window.renderer.gl.LINEAR});
+          // window.renderer.useProgram('distort');
+          // this.params.image = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});
           if (this.params.coloring == 2) {
             window.renderer.useProgram('planet-lava-glow');
             this.params.image = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});
@@ -1957,9 +1997,11 @@
           new Program(renderer, "space-texture", "#vertex-shader-2d", "#fragment-shader-space-texture");
           new Program(renderer, "space", "#vertex-shader-space", "#fragment-shader-space");
 
+          // new Program(renderer, "distort", "#vertex-shader-space", "#fragment-shader-distort");
+
           window.renderer = renderer;
 
-          this.setRandom(getParam('id') || Math.random());
+          this.setRandom(getParam('id'));
           this.genaratePlanets();
 
           console.log(this.sun);
@@ -2001,9 +2043,9 @@
       };
 
       MovingRect.prototype.setRandom = function(seed) {
-        if (typeof(seed) == 'undefined')
-          seed = Math.random();
-        this.random = new Random(`${seed}`);
+        if (!seed)
+          seed = `${Math.random()}`.replace('0\.', '');
+        this.random = new Random(seed);
         console.log(`#${seed}`);
       }
 
@@ -2037,7 +2079,9 @@
       MovingRect.prototype.genarateStars = function() {
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
-        this.stars = window.renderer.texture({random:this.random.rand()}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        this.stars = window.renderer.texture({random:this.random.rand(), dust:this.random.range(-1,1)}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        // window.renderer.useProgram('distort');
+        // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
 
       MovingRect.prototype.drawStars = function() {
@@ -2084,8 +2128,9 @@
         this.sun.draw(this.trans);
 
         if (this.man && this.man.onPlanet) {
+          let size = Math.min(this.width, this.height)/4.5;
           window.renderer.useProgram('planet');
-          window.renderer.render(this.man.onPlanet.params, 150, 150, 125, this.man.onPlanet.rotation);
+          window.renderer.render(this.man.onPlanet.params, size, size, size*0.8, this.man.onPlanet.rotation);
         }
       }
 
@@ -2211,11 +2256,31 @@
     const canvas = document.getElementById('canvas');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    mr = new MovingRect(canvas, 16, 16);
+    mr = new MovingRect(canvas);
     mr.draw();
     window.hideOrbits = false;
 
+    let favicon = document.createElement('canvas');
+    favicon.width = favicon.height = 16;
+    let faviconctx = favicon.getContext('2d');
+    let gradient = 
+      faviconctx.createRadialGradient(8, 8, 10, 10, 14, 9);
+    gradient.addColorStop(0.0, '#f00');
+    gradient.addColorStop(0.4, '#030');
+    gradient.addColorStop(1, '#abc');
+    faviconctx.fillStyle = gradient; 
+    faviconctx.beginPath();
+    faviconctx.arc(favicon.width/2, favicon.height/2, favicon.width/2, 0, 2 * Math.PI);
+    faviconctx.fill();
+
+    let link = document.createElement('link');
+    link.type = 'image/x-icon';
+    link.rel = 'shortcut icon';
+    link.href = favicon.toDataURL("image/x-icon");
+    document.getElementsByTagName('head')[0].appendChild(link);
+
     document.addEventListener('keydown', function(e) {
+      if (e.repeat) { return }
       switch (e.code) {
         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
@@ -2224,7 +2289,7 @@
         case 'NumpadAdd': case 'Equal': window.scale = 0.4; break;
         case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
       }
-      //console.log(e.code);
+      // console.log(e.code);
     });
 
     document.addEventListener('keyup', function(e) {
