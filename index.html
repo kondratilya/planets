@@ -255,12 +255,12 @@
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         } else if (u_type == 1) {
           height = noize_harm(vec3(0,noize_harm(noizeCoord, u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
-          moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
+          moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         } else {
           height = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
-          height += noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,(u_jpfactor/30.)), u_heightmap)*(u_jpfactor/30.), loopCoord.y), u_heightmap);
-          moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);        
+          moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         }
+
         float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
         gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain/2., 1);
       }
@@ -402,7 +402,7 @@
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
           light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
-          if (u_atmosphere > 0) {
+          if (u_atmosphere > 10) {
             vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
             vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y + u_random + 20000.0, u_rotation * u_cloudchange);
             clouds_value = clouds(noize_harm(noizeCoord, u_clouds*vec4(1., (1.5-pow(lengthSq2, 4.))/2., 1., lengthSq2+1.)));
