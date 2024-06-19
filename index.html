@@ -402,7 +402,7 @@
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
           light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
-          if (u_atmosphere > 10) {
+          if (u_atmosphere > 0) {
             vec2 spherizedCoord = spherize(v_rpos) + vec2(1.0, 1.0);
             vec3 noizeCoord = vec3(spherizedCoord.x+u_rotation*u_wind, spherizedCoord.y + u_random + 20000.0, u_rotation * u_cloudchange);
             clouds_value = clouds(noize_harm(noizeCoord, u_clouds*vec4(1., (1.5-pow(lengthSq2, 4.))/2., 1., lengthSq2+1.)));
