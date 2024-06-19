@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Planets!</title>
+    <script type="text/js-worker" id="spherize">
+      const 
+          buffer = e.data.buffer, 
+          size = e.data.size, 
+          persp = e.data.persp || 1;
+      let spherizeTextureCacheBuffer = e.data.cache;
+
+      const data = new Uint8ClampedArray(buffer);
+      const src = Uint8ClampedArray.from(data);
+      const r = size/2;
+      let pi, x, y, magSq, widthAtHeight, heightAtWidth, xx, yy, px, py, u, v, si;
+
+      let cached = true;
+      if (!spherizeTextureCacheBuffer) {
+        cached = false;
+        spherizeTextureCacheBuffer = new Int32Array(data.length).buffer;
+      }
+      spherizeTextureCache = new Int32Array(spherizeTextureCacheBuffer);
+
+      for (let i=0; i<data.length; i+=4) {
+        if (!cached) {
+          pi = i/4;
+          x=Math.floor(pi%size);
+          y=Math.floor(pi/size);
+
+          px = (x-r)/r;
+          py = (y-r)/r;
+          magSq = (px**2 + py**2);
+          if (magSq > 1)
+            continue;
+
+          dr = Math.hypot(px, py);
+          da = Math.atan2(py,px);
+          dr = Math.asin(dr*persp)/Math.PI*2/persp;
+          px = Math.cos(da)*dr;
+          py = Math.sin(da)*dr;
+
+          u = (px + 1) * (size/2);
+          v = (py + 1) * (size/2);
+
+          si = Math.trunc(v) * size*4 + Math.trunc(u)*4;
+          spherizeTextureCache[i] = si;
+        } else {
+          si = spherizeTextureCache[i];
+        }
+        data[i]     = src[si]; // red
+        data[i + 1] = src[si+1]; // green
+        data[i + 2] = src[si+2]; // blue 
+      }
+
+      self.postMessage({data:data.buffer, cache:spherizeTextureCacheBuffer}, [data.buffer, spherizeTextureCacheBuffer]);
+    </script>
+    <script type="text/js-worker" id="noize">
+      const constantVector = [
+        [1.0, 1.0],
+        [-1.0, 1.0],
+        [-1.0, -1.0],
+        [1.0, -1.0]
+      ];
+      function dot (a, b) { return a[0]*b[0] + a[1]*b[1]; }
+      function Fade(t) { return ((6*t - 15)*t + 10)*t*t*t; }
+      function Lerp(t, a1, a2) { return a1 + t*(a2-a1); }
+      function Noise2D(x, y){
+        let X = Math.floor(x) & 255;
+        let Y = Math.floor(y) & 255;
+        let xf = x-Math.floor(x);
+        let yf = y-Math.floor(y);
+        let topRight = [xf-1.0, yf-1.0];
+        let topLeft = [xf, yf-1.0];
+        let bottomRight = [xf-1.0, yf];
+        let bottomLeft = [xf, yf];
+        let valueTopRight = P[P[X+1]+Y+1];
+        let valueTopLeft = P[P[X]+Y+1];
+        let valueBottomRight = P[P[X+1]+Y];
+        let valueBottomLeft = P[P[X]+Y];
+        let dotTopRight = dot(topRight, constantVector[valueTopRight & 3]);
+        let dotTopLeft = dot(topLeft, constantVector[valueTopLeft & 3]);
+        let dotBottomRight = dot(bottomRight, constantVector[valueBottomRight & 3]);
+        let dotBottomLeft = dot(bottomLeft, constantVector[valueBottomLeft & 3]);
+        let u = Fade(xf);
+        let v = Fade(yf);
+        return Lerp(u, Lerp(v, dotBottomLeft, dotTopLeft), Lerp(v, dotBottomRight, dotTopRight));
+      }
+      const w = e.data.width;
+      const h = e.data.height;
+      const nOctaves = e.data.nOctaves || 8;
+      const firstOctave = e.data.firstOctave || 0.005;
+      const fade = e.data.fade || 0.5;
+      const P = new Int16Array(e.data.permutation);
+      const data = new Float32Array(h*w);
+      let i=0;
+
+      for(let y = 0; y < h; y++){
+        for(let x = 0; x < w; x++){
+          if (Math.hypot(x-w/2, y-h/2) > w/2+1)
+            {i++; continue;}
+
+          let n = 0.0,
+            a = 1.0,
+            f = firstOctave;
+          for(let o = 0; o < nOctaves; o++){
+            let v = a*Noise2D(x*f, y*f);
+            n += v;
+
+            a *= fade;
+            f *= 2.0;
+          }
+          
+          n += 1.0;
+          n *= 0.5;
+
+          data[i++] = n;
+        }
+      }
+      self.postMessage({data:data.buffer}, [data.buffer]);
+    </script>
+
+    <script type="text/js-worker" id="crater">
+      function pixel(i,r,g,b,a) {
+        data[i] = r;
+        data[i+1] = g;
+        data[i+2] = b;
+        data[i+3] += 255*a;
+      }
+      function putpixel(x,y,w,r,g,b,a) {
+        let i = Math.trunc(y)*w*4+Math.trunc(x)*4;
+        let x1 = x%1, y1 = y%1;
+        let x2 = 1-x1, y2 = 1-y1;
+        a = a/255;
+        pixel(i,r,g,b,a*x1*y1/2);
+        pixel(i+4,r,g,b,a*x2*y1/2);
+        pixel(i+w*4,r,g,b,a*x1*y2/2);
+        pixel(i+w*4+4,r,g,b,a*x2*y2/2);
+      }
+      const size = e.data.size;
+      const baseColorHue = e.data.baseColorHue || 0;
+      const r = e.data.r || size/10;
+      const data = new ImageData(size,size).data;
+
+      function Lerp(t, a1, a2) { return a1 + t*(a2-a1); }
+      function hsl2rgb(h,s,l) {
+        let a=s*Math.min(l,1-l);
+        let f=(n,k=(n+h/30)%12) => Math.trunc((l - a*Math.max(Math.min(k-3,9-k,1),-1))*255);
+        return [f(0), f(8), f(4)];
+      }
+
+      const cx = Math.random()*size, cy = Math.random()*size;
+      let n = Math.random(200)+100+r**2/Math.PI*2;
+      const alpha = Math.random()*(256-127)+127;
+      let color = hsl2rgb(baseColorHue, 0.5, 0.8);
+      for (let i=0;i<n;++i) {
+        let r1 = Math.random()*(r/3)+r;
+        let l = Math.random()**2*100;
+        let a = Math.random()*Math.PI*2;
+        for (let j=0;j<10;++j) {
+          let d = Lerp(Math.random(), r1, r1+l);
+          let x = cx+d*Math.cos(a), y = cy+d*Math.sin(a);
+          if (Math.hypot(x-size/2, y-size/2) > size/2+1)continue;
+          putpixel(x, y, size, color[0], color[1], color[2], alpha);
+        }
+      }
+      n = Math.random()*r**2+100;
+      for (let j=0;j<n;++j) {
+        let d = (3-Math.random()*3)*r/3;
+        let a = Math.random()*Math.PI*2;
+        let x = cx+d*Math.cos(a), y = cy+d*Math.sin(a);
+        if (Math.hypot(x-size/2, y-size/2) > size/2+1)continue;
+        putpixel(x, y, size, color[0], color[1], color[2], alpha);
+      }
+      self.postMessage({data:data.buffer}, [data.buffer]);
+    </script>
+
+    <script type="text/js-worker" id="cracks">
+      function pixel(i,r,g,b,a) {
+        data[i] = r;
+        data[i+1] = g;
+        data[i+2] = b;
+        data[i+3] += 255*a;
+      }
+      function putpixel(x,y,w,r,g,b,a) {
+        let i = Math.trunc(y)*w*4+Math.trunc(x)*4;
+        let x1 = x%1, y1 = y%1;
+        let x2 = 1-x1, y2 = 1-y1;
+        a = a/255;
+        pixel(i,r,g,b,a*x1*y1);
+        pixel(i+4,r,g,b,a*x2*y1);
+        pixel(i+w*4,r,g,b,a*x1*y2);
+        pixel(i+w*4+4,r,g,b,a*x2*y2);
+      }
+      const size = e.data.size;
+      const num = e.data.n;
+      const baseColorHue = e.data.baseColorHue || 0;
+      const dir = e.data.dir || Math.random()*Math.PI;
+      let rdir = e.data.rdir || Math.random()*Math.PI;
+      rdir = Math.random()*rdir-rdir/2;
+      const data = new ImageData(size,size).data;
+      function Lerp(t, a1, a2) { return a1 + t*(a2-a1); }
+      function hsl2rgb(h,s,l) {
+        let a=s*Math.min(l,1-l);
+        let f=(n,k=(n+h/30)%12) => Math.trunc((l - a*Math.max(Math.min(k-3,9-k,1),-1))*255);
+        return [f(0), f(8), f(4)];
+      }
+      let color = hsl2rgb(baseColorHue, 0.5, 0.8);
+      let alpha = Math.random()*128+127;
+      for (k=0; k<num; ++k) {
+        let x1 = Math.random()*size*2-size, y1 = Math.random()*size*2-size;
+        let a = dir + Math.random()*rdir;
+        let len = Math.random()*size;
+        let d = 10;
+        let n = len/d;
+        let density = d * Math.random();
+        for (let i=0;i<n;++i) {
+          x2 = Math.cos(a)*d+x1;
+          y2 = Math.sin(a)*d+y1;
+          for (let j=0;j<density;++j) {
+            let p = Math.random();
+            let x = Lerp(p, x1, x2);
+            let y = Lerp(p, y1, y2);
+            if (Math.hypot(x-size/2, y-size/2) > size/2+1)continue;
+            let balpha = alpha*(1-Math.abs((n/2-i)/(n/2))**2);
+            putpixel(x, y, size, color[0], color[1], color[2], balpha);
+          }
+          a += Math.random()*Math.PI/10-Math.PI/20;
+          x1 = x2;
+          y1 = y2;
+        }
+      }
+      self.postMessage({data:data.buffer}, [data.buffer]);
+    </script>
+
+    <script type="text/js-worker" id="distort">
+      const size = e.data.size;
+      const data1 = new Uint8ClampedArray(e.data.src);
+      const data2 = new Uint8ClampedArray(e.data.noize);
+      const amp = e.data.amp || 10;
+      const rotation = ((e.data.type || 'L') == 'R');
+      const data = new ImageData(size,size).data;
+
+      for (let x=0; x<size; ++x) {
+        for (let y=0; y<size; ++y) {
+          if (Math.hypot(x-size/2, y-size/2) > size/2+1)continue;
+          let xt = x%size;
+          let yt = y%size;
+          let i=Math.trunc(y)*size*4+Math.trunc(x)*4;
+          let it=Math.trunc(yt)*size*4+Math.trunc(xt)*4;
+          let xd, yd;
+          if (!rotation) {
+            xd = Math.trunc(x+(data2[it]/255*2-1)*amp);
+            yd = Math.trunc(y+(data2[data2.length-it]/255*2-1)*amp);
+          } else {
+            let d = (data2[it]/255*2-1)*Math.PI;
+            let d1 = (data2[data2.length-it]/255*2-1)*amp;
+            xd = x + Math.cos(d)*d1; 
+            yd = y + Math.sin(d)*d1;               
+          }
+          let idd=Math.trunc(yd)*size*4+Math.trunc(xd)*4;
+          if (idd > data1.length) idd -= data1.length;
+          if (idd < 0) idd = data1.length + idd;
+
+          data[i+0]=data1[idd+0];
+          data[i+1]=data1[idd+1];
+          data[i+2]=data1[idd+2];
+          data[i+3]=data1[idd+3];
+        }
+      }
+      self.postMessage({data:data.buffer}, [data.buffer]);
+    </script>
+
+    <script type="text/js-worker" id="blur">
+      const size = e.data.size;
+      const src = new Uint8ClampedArray(e.data.src);
+      const amp = e.data.amp || 10;
+      const dir = e.data.dir;
+      const data = new ImageData(size,size).data;
+
+      for (let x=0; x<size; ++x) {
+        for (let y=0; y<size; ++y) {
+          // if (Math.hypot(x-size/2, y-size/2) > size/2+1)continue;
+          let r=0,g=0,b=0,a=0;
+          let i=Math.trunc(y)*size*4+Math.trunc(x)*4;
+          for (u=0; u<amp; ++u) {
+            j = (dir === 'H') ? i+u*4 : i+u*size*4;
+            if (j > src.length) j -= src.length;
+            if (j < 0) j = src.length + j;
+            r+=src[j+0];
+            g+=src[j+1];
+            b+=src[j+2];
+            a+=src[j+3];
+          }
+          data[i+0]=r/amp;
+          data[i+1]=g/amp;
+          data[i+2]=b/amp;
+          data[i+3]=255;
+        }
+      }
+      self.postMessage({data:data.buffer}, [data.buffer]);
+    </script>
+
+    <script>
+      function WorkerFromString(id) {
+        let code = document.querySelector(`script#${id}`).textContent;
+        let blob;
+        code = `self.addEventListener('message', function(e) {${code};self.close();}, false);`;
+        try {
+            blob = new Blob([code], {type: 'application/javascript'});
+        } catch (e) { // Backwards-compatibility
+            window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+            blob = new BlobBuilder();
+            blob.append(code);
+            blob = blob.getBlob();
+        }
+        return new Worker(URL.createObjectURL(blob));
+      }
+
+      async function RunWorkerFromString(id, data, transferable){ 
+        return new Promise(function(resolve, reject) {
+          const worker = WorkerFromString(id);
+          worker.onmessage = (e) => resolve(e);
+          worker.postMessage(data, transferable);
+        });
+      }
+
+      class Point {
+        constructor (x, y) {
+          this.set(x,y);
+        }
+        static fromPolar(a, r) {
+          r = r || 1;
+          return new Point(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        static fromPos(x, y) {
+          return new Point(x, y);
+        }
+        set (x, y) {
+          if (x instanceof Point) {
+            this.x=x.x;
+            this.y=x.y;        
+          } else {
+            this.x=x || 0;
+            this.y=y || 0;
+          }
+          return this;
+        }
+        add (x, y) {
+          if (!(x instanceof Point)) {
+            return this.add(new Point(x,y));
+          }
+          this.x += x.x;
+          this.y += x.y;
+          return this;
+        }
+        sub (x, y) {
+          if (!(x instanceof Point)) {
+            return this.sub(new Point(x,y));
+          }
+          this.x -= x.x;
+          this.y -= x.y;
+          return this;
+        }
+        mul (x) {
+          this.x *= x;
+          this.y *= x;
+          return this;
+        }
+        dot (x, y) {
+          if (!(x instanceof Point)) {
+            return this.dot(new Point(x,y));
+          }
+          return this.x*x.x + this.y*x.y;
+        }
+        len () {
+          return Math.hypot(this.x, this.y);
+        }
+        ang () {
+          return Math.atan2(this.y, this.x);
+        }
+        dist (x, y) {
+          if (!(x instanceof Point)) {
+            return this.dist(new Point(x,y));
+          }
+          return Math.hypot((x.x - this.x), (x.y - this.y));
+        }
+        norm () {
+          let l = this.len();
+          this.x /= l;
+          this.y /= l;
+          return this;
+        }
+        scaled(trans) {
+          return (new Point(this)).mul(trans.scale).add(trans.pos);
+        }
+      }
+
+      window.spherizeCache = false;
+      async function spherize(tex) {
+        return new Promise(function(resolve, reject) {
+          if (!tex) return;
+          let size = tex.width;
+          let ctx = tex.getContext("2d");
+          let buffer = ctx.getImageData(0, 0, size, size).data.buffer;
+
+          RunWorkerFromString(
+            'spherize', 
+            {
+              buffer: buffer,
+              size: size,
+              persp: 1,
+              cache: window.spherizeCache
+            },
+            [buffer]
+          ).then( 
+            function(e) {
+              let id = new ImageData(new Uint8ClampedArray(e.data.data), size);
+              ctx.putImageData(id, 0, 0);
+              window.spherizeCache = e.data.cache;
+              resolve(tex);
+            }
+          );
+        });
+      }
+
+      function MakePermutation(){
+        let P = new Int16Array(512);
+        for(let i = 0; i < 256; i++)
+          P[i] = i;
+        for(let e = 256-1; e > 0; e--){
+          let index = Math.round(Math.random()*(e-1)),
+              temp  = P[e];
+          P[e] = P[index];
+          P[index] = temp;
+        }
+        for(let i = 0; i < 256; i++)
+          P[i+256] = P[i];
+        return P.buffer;
+      }
+      async function generateNoise(w, h, nOctaves, firstOctave, fade, coloring, permutation) {
+        function doColoring(arr, ctx, size, coloring) {
+          const data = ctx.getImageData(0, 0, size, size).data;
+          for (let i = 0; i < arr.length; i++) {
+            x=Math.floor(i%size);
+            y=Math.floor(i/size);
+            let color = coloring(arr[i], x/size, y/size);
+            data[i*4+0] = color[0]; // red
+            data[i*4+1] = color[1]; // green
+            data[i*4+2] = color[2]; // blue 
+            data[i*4+3] = color[3]; // alpha
+          }
+          let id = new ImageData(data, size);
+          ctx.putImageData(id, 0, 0);
+        }
+
+        permutation = permutation || MakePermutation();
+        return new Promise(function(resolve, reject) {
+          RunWorkerFromString(
+            'noize', 
+            {
+              width:w, 
+              height:h, 
+              nOctaves:nOctaves, 
+              firstOctave:firstOctave,
+              fade:fade,
+              permutation:permutation
+            }
+          ).then(
+            function(e){
+              const canvas = document.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext("2d");
+              doColoring(new Float32Array(e.data.data), ctx, w, coloring);
+              resolve(canvas);
+            },
+          );
+        });
+      }
+
+      async function makeCrater(size, r, baseColorHue) {
+        return new Promise(function(resolve, reject) {
+          RunWorkerFromString(
+            'crater', 
+            {
+              size: size,
+              r: r,
+              baseColorHue: baseColorHue,
+            }
+          ).then( 
+            function(e) {
+              let data=e.data.data;
+              const craterCanvas = document.createElement('canvas');
+              craterCanvas.width = craterCanvas.height = size;
+              let id = new ImageData(new Uint8ClampedArray(data), size);
+              craterCanvas.getContext("2d").putImageData(id, 0, 0);
+              resolve(craterCanvas);
+            }
+          );
+        });
+      }
+
+      async function makeCracks(size, n, baseColorHue, dir, rdir) {
+        return new Promise(function(resolve, reject) {
+          RunWorkerFromString(
+            'cracks', 
+            {
+              size: size,
+              n: n,
+              baseColorHue: baseColorHue,
+              dir: dir,
+              rdir: rdir
+            }
+          ).then( 
+            function(e) {
+              let data=e.data.data;
+              const craterCanvas = document.createElement('canvas');
+              craterCanvas.width = craterCanvas.height = size;
+              let id = new ImageData(new Uint8ClampedArray(data), size);
+              craterCanvas.getContext("2d").putImageData(id, 0, 0);
+              resolve(craterCanvas);
+            }
+          );
+        });
+      }
+
+      async function distort(src, noize, amp, rotation) {
+        return new Promise(function(resolve, reject) {
+          let size = src.width;
+          let ctx = src.getContext("2d");
+          let srcBuffer = ctx.getImageData(0, 0, size, size).data.buffer;
+          let noizeBuffer = noize.getContext("2d").getImageData(0, 0, size, size).data.buffer;
+
+          RunWorkerFromString(
+            'distort', 
+            {
+              src: srcBuffer,
+              noize: noizeBuffer,
+              size: size,
+              amp: amp,
+              rotation: rotation
+            },
+            [srcBuffer, noizeBuffer]
+          ).then( 
+            function(e) {
+              let id = new ImageData(new Uint8ClampedArray(e.data.data), size);
+              ctx.putImageData(id, 0, 0);
+              resolve(src);
+            }
+          );
+        });
+      }
+
+      async function linearBlur(src, amp, dir) {
+        return new Promise(function(resolve, reject) {
+          let size = src.width;
+          let ctx = src.getContext("2d");
+          let srcBuffer = ctx.getImageData(0, 0, size, size).data.buffer;
+
+          RunWorkerFromString(
+            'blur', 
+            {
+              src: srcBuffer,
+              size: size,
+              amp: amp,
+              dir: dir
+            },
+            [srcBuffer]
+          ).then( 
+            function(e) {
+              let id = new ImageData(new Uint8ClampedArray(e.data.data), size);
+              ctx.putImageData(id, 0, 0);
+              resolve(src);
+            }
+          );
+        });
+      }
+
+      function randomL(p) {
+        return Math.random() ** (p || 1);
+      }
+      function randomC(p) {
+        x = (Math.random()-0.5)*2;
+        return (Math.abs(x)**(p||1)*Math.sign(x))/2 + 0.5;
+      }
+      function randomCenter(f, d, p) {
+        return (randomC(p)-0.5)*(f||1)+(d||0);
+      }
+      function randomRange(x1, x2, p) {
+        [x1, x2] = [Math.min(x1, (x2||0)), Math.max(x1, (x2||0))];
+        return randomCenter(x2-x1, x1+(x2-x1)/2, p);
+      }
+      function randomCenterL(f, d, p) {
+        return (randomL(p)-0.5)*(f||1)+(d||0);
+      }
+      function randomRangeL(x1, x2, p) {
+        [x1, x2] = [Math.min(x1, (x2||0)), Math.max(x1, (x2||0))];
+        return randomCenterL(x2-x1, x1+(x2-x1)/2, p);
+      }
+      function hsl2rgb(h,s,l) {
+        let a = s*Math.min(l,1-l);
+        let f = (n,k=(n+h/30)%12) => 
+            Math.trunc((l - a*Math.max(Math.min(k-3,9-k,1),-1))*255);
+        return [f(0), f(8), f(4)];
+      }
+      function genColoring(baseColor) {
+        const secondColor = Math.random() > 0.5 ?   // More prob for blue water 
+            [Math.random()*360, randomRange(10, 60), baseColor[2]] :
+            [randomRange(180, 240), randomRange(10, 60), baseColor[2]];
+        const baseColorRgb = hsl2rgb(baseColor[0],baseColor[1]/100,baseColor[2]/100);
+        const secondColorRgb = hsl2rgb(secondColor[0],secondColor[1]/100,secondColor[2]/100);
+        const coastlineColor = [
+          (baseColorRgb[0]+secondColorRgb[0])/2, (baseColorRgb[1]+secondColorRgb[1])/2, (baseColorRgb[2]+secondColorRgb[2])/2
+        ];
+        let threshold = 0.5, coastline = 0.01;
+        return function(n, x, y) {
+          n = Math.max(0.3, n);
+          let color;
+          if (n > threshold+coastline) c = baseColorRgb;
+          else if (n < threshold-coastline) c = secondColorRgb;
+          else c = coastlineColor;
+          return [c[0]*n,c[1]*n,c[2]*n,255];
+        }
+      }
+      function genColoringHue(color) {
+        const latCol = randomCenter(60*2);
+        return function(n, x, y) {
+          n = Math.min(n**3, 0.8);
+          let h = color[0]+(n-0.5)*30;
+          h += Math.abs((1-y*2)**1)*latCol;
+          c = hsl2rgb((h+360)%360, color[1]/100, color[2]/100);
+          return [c[0],c[1],c[2],255];
+        }
+      }
+      function genColoringClouds(x) {
+        return function(n) {
+          let rgb = Math.round(255*n*(x || 1));
+          return [rgb,rgb,rgb,255];
+        }
+      }
+      function coloringThreshold(n) {
+        let a;
+        if (n > 0.5+0.01) a = 255;
+        else if (n < 0.5-0.01) a = 0;
+        else a = 127;
+        return [0,0,0,a];
+      }
+      function generateColoringCloudsAlpha(height){
+        height = height || 0;
+        return function(n) {
+          n = Math.max(0, n-height);
+          return [255,255,255,Math.round(255*n)];
+        }
+      }
+      function generateColoringPole(){
+        const poleHeight = randomRange(0.25);
+        return function(n, x, y) {
+          n = y<0.5 ? n+(poleHeight-y)/poleHeight : n+(y-(1-poleHeight))/poleHeight;
+          let a = n > 0.5 ? 255 : 0;
+          let rgb = Math.round(255*n*(1-poleHeight*2));
+          return [rgb,rgb,rgb,a];
+        }
+      }
+      // function generateColoringTropics(){
+      //   const poleHeight = 0.3;//randomRange(0.3, 0.8);
+      //   const color = hsl2rgb(randomRange(32, 64), randomRange(0.5,0.8), randomRange(0.2,0.8));
+      //   return function(n, x, y) {
+      //     n = y<0.5 ? n+(y-poleHeight)/poleHeight : n+((1-poleHeight)-y)/poleHeight;
+      //     let a = n > 0.5 ? ((n-0.5)*2*255) : 0;
+      //     let rgb = Math.round(255*n*(1-poleHeight*2));
+      //     return [color[0],color[1],color[2],Math.min(a, 150)];
+      //     return [255,0,0,255];
+      //   }
+      // }
+      async function generateCloudsTexture(size) {
+        const cloudy = randomRange(0, 1, 1/10);
+        const clouds = await generateNoise(size, size, 8, 0.002, 1, generateColoringCloudsAlpha(cloudy));
+        const noize = await generateNoise(size, size, 8, 0.01, 0.5, genColoringClouds());
+        await distort(clouds, noize, randomRange(size/5), 'R');
+        return clouds;
+      }
+
+      async function generateEarthTexture(tex, color) {
+        const size = tex.width;
+        const ctx = tex.getContext("2d");
+        const P = MakePermutation();
+        let complexity = randomRangeL(0.005, 0.04, 3);
+        const noize = await generateNoise(size,size,8,complexity,0.5,genColoring(color),P);
+        const map = await generateNoise(size,size,8,complexity,0.5,coloringThreshold,P);
+        ctx.drawImage(noize,0,0);
+
+        const hueCanvas = await generateNoise(size, size, 8, 0.005, 1, genColoringHue(color));
+        let ctx1 = hueCanvas.getContext("2d");
+        ctx1.globalCompositeOperation = 'destination-in';
+        ctx1.drawImage(map,0,0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'hue';
+        ctx.drawImage(hueCanvas,0,0);
+
+        const poleCanvas = await generateNoise(size, size, 8, 0.005, 1, generateColoringPole());
+        ctx1 = poleCanvas.getContext("2d");
+        ctx1.globalCompositeOperation = 'destination-in';
+        ctx1.drawImage(map,0,0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'screen';
+        ctx.drawImage(poleCanvas,0,0);
+
+        // const tropicCanvas = await generateNoise(size, size, 8, 0.005, 0.7, generateColoringTropics());
+        // await distort(tropicCanvas, noize, 100, 'R');
+        // ctx1 = tropicCanvas.getContext("2d");
+        // ctx1.globalCompositeOperation = 'destination-in';
+        // ctx1.drawImage(map,0,0);
+        // ctx.globalAlpha = 1;
+        // ctx.globalCompositeOperation = 'source-over';
+        // ctx.drawImage(tropicCanvas,0,0);
+
+        const clouds = await generateCloudsTexture(size);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = randomRange(0.5, 1);
+        ctx.drawImage(clouds,0,0);
+        return tex;
+      }
+      async function generateGasTexture(tex, color, callback) {
+        const size = tex.width;
+        let ctx = tex.getContext("2d");
+        let gradient = ctx.createLinearGradient(size/2, 0, size/2, size);
+        const polesColor = randomCenterL(60, color[0], 0.5);
+        gradient.addColorStop(0, `hsl(${polesColor},${color[1]}%,${color[2]}%)`);
+        gradient.addColorStop(0.4, `hsl(${color[0]},${color[1]}%,${color[2]}%)`);
+        gradient.addColorStop(0.6, `hsl(${color[0]},${color[1]}%,${color[2]}%)`);
+        gradient.addColorStop(1, `hsl(${polesColor},${color[1]}%,${color[2]}%)`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+        ctx.globalCompositeOperation = 'source-over';
+        const n = Math.random()*30;
+        for (let i=0; i<n; ++i) {
+          ctx.strokeStyle = `hsla(${randomRange(360)},60%,${color[2]}%,${randomRange(0,50,20)}%)`;
+          ctx.lineWidth = randomRange(size/10);
+          ctx.beginPath();
+          let y = Math.random()*size;
+          ctx.moveTo(0, randomCenter(size/10, y));
+          ctx.lineTo(size, randomCenter(size/10, y));
+          ctx.stroke();
+        }
+        const n1 = randomRange(100, 300);
+        for (let j=0;j<n1;++j) {
+          let x = randomRange(size), y = randomRange(size), r=randomRange(size/25);
+          if (Math.hypot(x-size/2, y-size/2) > size/2+r+1)continue;
+          ctx.fillStyle = `hsla(${randomCenter(80, color[0])},60%,${color[2]}%,${randomRange(30)}%)`;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        await linearBlur(tex, size/25, 'V');
+
+        let noize;
+        noize = await generateNoise(size, size, 8, randomRange(0.01, 0.05), 0.4, genColoringClouds());
+        await distort(tex, noize, randomRange(size/10, size/100, 3));
+        
+        const clouds = await generateCloudsTexture(size);      
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = randomRange(0.75);
+        ctx.drawImage(clouds,0,0);
+        
+        return tex;
+      }
+      async function generateMoonTexture(tex, color, callback) {
+        const size = tex.width;
+        let ctx = tex.getContext("2d");
+        let noize;
+        noize = await generateNoise(size, size, 8, 0.005, 0.8, genColoringClouds());
+        ctx.globalAlpha = randomRange(0.25, 0.75);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(noize,0,0);
+        noize = await generateNoise(size, size, 8, 0.005, 0.8, genColoringClouds());
+        ctx.globalAlpha = randomRange(0.25, 0.75);
+        ctx.globalCompositeOperation = 'darken';
+        ctx.drawImage(noize,0,0);
+        noize = await generateNoise(size, size, 8, 0.005, 0.8, genColoringClouds(.5));
+        ctx.globalCompositeOperation = 'screen';
+        const c = randomCenter(60, color[0]);
+        let n = randomRange(-2, 6);
+        for (let i=0;i<n;++i) {
+          ctx.globalAlpha = randomRange(0.7, 1);
+          const craterCanvas = await makeCrater(size, randomRangeL(size/40, size/5, 5), c);
+          ctx.drawImage(craterCanvas,0,0);
+        }
+        n = randomRange(-50, 150);
+        if (n > 0) {
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = 1;
+          const crackCanvas = await makeCracks(size, n, c);
+          ctx.drawImage(crackCanvas,0,0);
+        }
+        ctx.globalAlpha = randomRange(0.25, 0.75);
+        ctx.globalCompositeOperation = 'lighten';
+        ctx.drawImage(noize,0,0);
+        return tex;
+      }
+
+      function getParam(param) {
+        params = new URLSearchParams(window.location.search);
+        switch (param) {
+          case 'quality': return params.get('quality') || 250;
+          case 'population': return Math.max(10, 100 - (params.get('population') || 20));
+        }
+      }
+
+      class Planet {
+        constructor(sun, r, c, d, s, a, rotation) {
+          this.sun = sun;
+          this.r = r || 1000;
+          this.c = c || [0,100,100];
+          this.d = d || 0;
+          this.s = s || 0;
+          this.a = a || 0;
+          this.rotation = rotation || 0;
+          this.satelites = [];
+          this.density= 1;
+          this.rotation = 0;
+          window.inter = 0;
+        }
+        get x() {
+          return this.sun ? this.sun.x + Math.cos(this.a) * this.d : 0;
+        }
+        get y() {
+          return this.sun ? this.sun.y + Math.sin(this.a) * this.d : 0;
+        }
+        get pos() {
+          return new Point(this.x, this.y);
+        }
+        getColor(l) {
+          return `hsl(${this.c[0]},${this.c[1]}%,${(this.c[2]*(l/100))}%)`;
+        }
+        get color() {
+          return this.getColor(100);
+        }
+        systemSun() {
+          if (!this.sun) return this;
+          else return this.sun.systemSun();
+        }
+        eachSatelite(f, ...args) {
+          f.apply(this, args);
+          for (let i=0; i<this.satelites.length; ++i)
+            this.satelites[i].eachSatelite(f, ...args);
+        }
+        spherizeTexture() {
+          this.map = document.createElement('canvas');
+          this.map.width = this.map.height = this.tex.width;
+          this.map.getContext("2d").drawImage(this.tex, 0, 0);
+          spherize(this.tex).then(()=>{if (window.toPopoulate) window.toPopoulate--;});
+        }
+        async generateTexture(type) {
+          const size = getParam('quality');
+          window.toPopoulate = (window.toPopoulate || 0) + 1;
+          this.tex = document.createElement('canvas');
+          this.tex.width = this.tex.height = size;
+          const ctx = this.tex.getContext("2d");
+          ctx.fillStyle = this.color;
+          ctx.fillRect(0, 0, size, size);
+          type = type || Math.random();
+          let promise;
+
+          if (this.r > 100 && type >= 0.9) type = Math.random();
+          if (type < 0.3)
+            promise = generateGasTexture(this.tex, this.c);
+          else if (type < 0.6) 
+            promise = generateMoonTexture(this.tex, this.c);
+          else if (type < 0.9) 
+            promise = generateEarthTexture(this.tex, this.c);
+
+          if (promise)
+            promise.then(()=>this.spherizeTexture());
+          else {
+            this.map = this.tex;
+            if (window.toPopoulate) window.toPopoulate--;
+          }
+        }
+        generateRings() {
+          const n = randomRange(6); Math.random()*6;
+          this.rings = [];
+          let a = randomRange(Math.PI*2);
+          let e = randomRange(0.5, 10);
+          let c = [randomRange(360), randomRange(70), 50];
+          for (let i=0; i<n; ++i) {
+            this.rings.push({
+              a: a,
+              d1: randomRange(this.r*1.1, this.r*2),
+              e: e,
+              c: c,
+            });
+            this.rings[i].d2 = this.rings[i].d1 + randomRange(this.r/10, this.r);
+          }
+        } 
+        populate() {
+          let n = Math.round(randomRange(this.r/getParam('population')))-2;
+          let or = this.r*2 + this.r/10;
+          let planet, r, d;
+          n = Math.max(0, n);
+          if (!this.sun) 
+            n = Math.max(n, 6);
+
+          for (let i=0; i<n; ++i) {
+            r = randomRange(10, this.r/2);
+            d = randomCenter(200, or);
+
+            or = d + r*2;
+            if (Math.random()>0.7 && this.systemSun() == this && !this.hasAsteroids) {
+              this.hasAsteroids = true;
+              const na = randomRange(100, 400);
+              r = Math.max(r, 300);
+              for (let i=0; i<na; ++i) {
+                let s = Math.sqrt((this.r+r)/(d**2));
+                planet = new Planet(
+                  this,
+                  randomRangeL(5, 15, 8),
+                  [randomRange(360), randomRange(20), randomRange(20,80)],
+                  randomCenter(r, d, 2),
+                  randomCenter(s/10, s)/3,
+                  randomRange(Math.PI*2)
+                );
+                planet.asteroid = true;
+                planet.density = 0;
+                this.satelites.push(planet);
+              }
+            } else {
+              planet = new Planet(
+                this,
+                r,
+                [randomRange(256), randomRange(10, 60), randomRange(40, 60)],
+                d,
+                Math.sqrt((this.r+r)/(d**2))/3,
+                randomRange(Math.PI*2),
+                randomCenter(Math.PI*2)/100
+              );
+              
+              if (Math.random() < 0.33 && planet.r > 100) {
+                planet.generateRings();
+              }
+              planet.generateTexture();
+
+              planet.populate();
+              this.satelites.push(planet);
+            }
+          }
+        }
+        move() {
+          this.oPos = Point.fromPos(this.pos);
+          this.a += this.s;
+        }
+        gravitate(obj, G) {
+          if (!this.density) return;
+          G = 1000 * (G || 1);
+          let r = this.pos.dist(obj.pos);
+          let v = 4/3*Math.PI*(this.r/100)**3;
+          let m = v * this.density;
+          
+          let f = (m / r**2) * G;
+          obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
+        }
+        collision(obj, asteroids) {
+          if (!asteroids && this.asteroid) return;
+          let dp = Point.fromPos(obj.pos).sub(this.pos);
+          if (dp.len() < this.r + (obj.r || 0)) {
+            obj.onPlanet = this;
+            obj.onPlanetA = dp.ang();
+          }
+        }
+      };
+
+      class Man {
+        constructor(pos) {
+          this.pos = new Point(pos);
+          this.a = 0;
+          this.s = 0;
+          this.r = 10;
+          this.dp = new Point();
+          this.gdp = new Point();
+          this.f = new Point();
+          this.fuel = 100;
+          this.thrust = {
+            get on() { return !!(this.u || this.d || this.l || this.r) }
+          }
+        }
+
+        move(sun) {
+          this.gdp.set(0, 0);
+          let oldPos = Point.fromPos(this.pos);
+
+          sun.eachSatelite(function(obj) {this.gravitate(obj)}, this);
+
+          this.dp.add(this.gdp);
+
+          let wasOnPlanet = this.onPlanet;
+          if (!this.onPlanet) {
+            sun.eachSatelite(function(obj) {this.collision(obj)}, this);
+          }
+          if (!wasOnPlanet && this.onPlanet) {
+            this.thrust.u = false;
+            this.a = this.onPlanetA;
+            // let planet = this.onPlanet.pos;
+
+// this.a = this.a % Math.PI*2; 
+
+// // force it to be the positive remainder, so that 0 <= angle < 360  
+// this.a = (this.a  + Math.PI*2) % Math.PI*2;  
+
+// // force into the minimum absolute value residue class, so that -180 < angle <= 180  
+// if (this.a > Math.PI)  
+//     this.a -= Math.PI*2;  
+
+//             // let da = (this.a-this.onPlanetA) % Math.PI*2;
+//             // if (da < 0) da += Math.PI*2;
+//             // da -= Math.PI;
+//             if (this.onPlanetA > -Math.PI/2 && this.onPlanetA < Math.PI/2) {
+//               if (this.a > -Math.PI && this.a < Math.PI)
+//                 this.a =  this.onPlanetA + Math.PI/2;
+//               else 
+//                 this.a =  this.onPlanetA - Math.PI/2;
+//             }
+
+
+// console.log(this.a/Math.PI*180, this.onPlanetA/Math.PI*180, 
+//               (da/Math.PI*180) % 360);
+            
+//             // this.a = da>Math.PI ? this.onPlanetA - Math.PI/2 : this.onPlanetA + Math.PI/2;
+//             if (da < 0)
+//               this.a =  this.onPlanetA + Math.PI/2;
+//             else 
+//               this.a =  this.onPlanetA - Math.PI/2;
+            // this.a = this.onPlanetA;
+
+          }
+
+          if (this.thrust.u) {
+            this.onPlanet = false;
+          }
+
+          if (!this.onPlanet) {
+            // if (this.fuel <= 9) this.thrust.u = this.thrust.d = this.thrust.l = this.thrust.r = 0;
+            if (this.thrust.u) {
+              this.dp.sub(Point.fromPolar(this.a, 5));
+              if (wasOnPlanet) {
+                this.pos = Point.fromPolar(this.onPlanetA, wasOnPlanet.r+30).add(wasOnPlanet.pos);
+                // this.thrust.l=this.thrust.r=false;
+              }
+              this.fuel -= 1;
+            }
+            if (this.thrust.d) {
+              this.dp.add(Point.fromPolar(this.a, 2.5));
+              this.fuel -= 0.5;
+            }
+            if (this.thrust.r) {
+              this.a += 0.05/this.thrust.planetary;
+              this.fuel -= 0.01;
+            }
+            if (this.thrust.l) {
+              this.a -= 0.05/this.thrust.planetary;
+              this.fuel -= 0.01;
+            }
+            if (this.thrust.planetary > 1)
+              this.thrust.planetary--;
+          }
+
+          if (this.onPlanet) {
+            this.thrust.planetary = 10;
+            let p = 2 * this.onPlanet.r * Math.PI;
+            let forA = p / (Math.PI * 2);
+            let o = Point.fromPolar(this.onPlanetA, this.onPlanet.r);
+            let moved = false;
+
+            if (this.onPlanet.rotation) {
+              this.onPlanetA += this.onPlanet.rotation;
+              moved = true;
+            }
+            if (this.thrust.r) {
+              this.onPlanetA += 10/forA;
+              moved = true;
+            }
+            if (this.thrust.l) {
+              this.onPlanetA -= 10/forA;
+              moved = true;
+            }
+
+            let n = Point.fromPolar(this.onPlanetA, this.onPlanet.r);
+            let newPos = Point.fromPos(this.onPlanet.pos).add(n);
+            this.dp = Point.fromPos(oldPos).sub(newPos);
+            this.gdp = Point.fromPolar(this.onPlanetA);
+            
+              // this.a = this.onPlanetA;
+
+            if (this.mode == 'man') {
+              if (moved) {
+                this.a = Point.fromPos(n).sub(o).ang();
+              } else {
+                // this.a += this.onPlanet.s;
+              }           
+            } else {
+              this.a = this.onPlanetA;              
+            }
+          }
+
+          let speed = this.dp.len();
+          if (speed > 20) {
+            this.dp.mul(0.9);
+          }
+
+          if (!this.thrust.on && !this.onPlanet) {
+            let mod = (a, n) => (a % n + n) % n;
+            let ga = this.gdp.ang();
+            let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+            this.a += da/150;
+          }
+
+          this.pos.sub(this.dp);
+        }
+
+        fireRocket(world) {
+          const rocket = new Rocket(Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100)), this.a+Math.PI, 4);
+          rocket.dp.set(this.dp);
+          world.rockets.add(rocket);
+        }
+      }; 
+
+      class Rocket{
+        constructor(pos,a,s,fuel) {
+          this.pos = new Point(pos);
+          this.a=a;
+          this.s=s;
+          this.fuel=fuel || 40;
+          this.dp = new Point();
+          this.gdp = new Point();
+        }
+        move(sun) {
+          this.gdp.set(0, 0);
+
+          sun.eachSatelite(function(obj) {this.gravitate(obj)}, this);
+          
+          if (this.fuel > 0) {
+            this.dp.add(Point.fromPolar(this.a, this.s));
+            this.fuel--;
+          }
+          this.dp.add(this.gdp);
+          
+          let speed = this.dp.len();
+          if (speed > 20) {
+            this.dp.mul(0.9);
+          }
+          this.pos.sub(this.dp);          
+          sun.eachSatelite(function(obj) {this.collision(obj)}, this);
+        }
+      } 
+
+      MovingRect = function(canvas) {
+        this.canvas = canvas;
+
+        if (canvas.getContext) {
+          this.width = this.canvas.getBoundingClientRect().width;
+          this.height = this.canvas.getBoundingClientRect().height;
+          this.ctx = this.canvas.getContext('2d');
+          this.ctx.lineWidth = 3;
+          this.ctx.fillStyle = '#000000';
+          this.ctx.fillRect(0, 0, this.width, this.height);
+
+          this.genaratePlanets();
+
+          console.log(this.sun);
+
+          this.rockets = new Set();  
+
+          this.trans={
+            pos: new Point(),
+            scale: 0.1,
+          };
+
+          for (let i=2;i<this.sun.satelites.length;++i) {
+            if (this.sun.satelites[i].asteroid) 
+              continue;
+            this.man = new Man(this.sun.satelites[i].pos);
+            this.man.mode = 'man';
+            break;
+          }
+
+          this.setCenter(new Point(0,0), 0.05, true);
+
+          this.genarateStars(1000, 10000);
+
+          this.frame = 0;
+        }
+      };
+
+      MovingRect.prototype.setCenter = function(pos, scale, immidiate) {
+        let t = Point.fromPos(this.width/2, this.height/2).sub(Point.fromPos(pos).mul(this.trans.scale));
+
+        if (immidiate) {
+          this.trans.pos = t;
+          if (scale) {
+            this.trans.scale = scale;
+          }
+        } else {
+          let d = Point.fromPos(t).sub(this.trans.pos);
+          this.trans.pos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x);
+          this.trans.pos.y += Math.sqrt(Math.abs(d.y))*Math.sign(d.y);
+          if (scale) {
+            let ds = scale - this.trans.scale;
+            this.trans.scale += ds / 100;
+          }
+        }
+      } 
+
+      MovingRect.prototype.genaratePlanets = function() {
+        this.sun = new Planet();
+        // this.sun.density=0.1;
+        // this.sun.rotation = (Math.random() * Math.PI*2 - Math.PI) / 100;
+        this.sun.populate();
+      } 
+
+      MovingRect.prototype.movePlanets = function() {
+        this.sun.eachSatelite(function(){this.move()});
+      }
+
+      MovingRect.prototype.genarateStars = function(size, n) {
+        function Lerp(t, a1, a2) { return a1 + t*(a2-a1); }
+        this.starsBg = document.createElement('canvas');
+        this.starsBg.width = this.starsBg.height = size;
+        const ctxBg = this.starsBg.getContext("2d");
+        for (let i=0; i<n; ++i) {
+          let l = randomRangeL(0.6, 3, 50);
+          let x = randomRange(size), y = randomRange(size);
+          let c = 'hsl('+randomRange(360)+',20%,'+randomRange(l*80)+'%)';
+          if (l>2) {
+            let gradient = ctxBg.createRadialGradient(x, y, 0, x, y, l**2);
+            gradient.addColorStop(0, c);
+            gradient.addColorStop(1, 'hsla(0,10%,10%,0)');
+            ctxBg.fillStyle = gradient; 
+            ctxBg.beginPath();
+            ctxBg.arc(x, y, l**2, 0, 2 * Math.PI);
+            ctxBg.fill();
+          }
+          ctxBg.fillStyle = c;
+          ctxBg.beginPath();
+          ctxBg.arc(x, y, l, 0, 2 * Math.PI);
+          ctxBg.fill();
+        }
+      }
+
+      MovingRect.prototype.drawStars = function() {
+        let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
+        d.set(d.x % this.starsBg.width, d.y% this.starsBg.height);
+        
+        if (d.x > 0) d.x -= this.starsBg.width;
+        if (d.y > 0) d.y -= this.starsBg.height;
+
+        for (let i=0; this.starsBg.width*(i-1) < this.width; i++) {
+          for (let j=0; this.starsBg.height*(j-1) < this.height; j++) {
+            this.ctx.drawImage(this.starsBg, d.x + this.starsBg.width*i, d.y+ this.starsBg.height*j); 
+          }
+        }
+      }
+
+      MovingRect.prototype.drawPlanetsRings = function(far) {
+        function drawRings(ctx, trans, far) {
+          if (!this.rings) {
+            return;
+          };
+          let scaledPos = this.pos.scaled(trans);
+          for (let i=0; i<this.rings.length; ++i) {
+            let ring = this.rings[i];
+            let c = ring.c;
+            let l = 30;
+            ctx.fillStyle = `hsla(${c[0]},${c[1]}%,${(c[2]*(l/100))}%, 30%)`;
+            ctx.beginPath();
+            if (far) {
+              ctx.ellipse(scaledPos.x, scaledPos.y, ring.d1*trans.scale, (ring.d1/ring.e)*trans.scale, ring.a, 0, Math.PI, true);
+              ctx.ellipse(scaledPos.x, scaledPos.y, ring.d2*trans.scale, (ring.d2/ring.e)*trans.scale, ring.a, Math.PI, 0, false);
+            } else {
+              ctx.ellipse(scaledPos.x, scaledPos.y, ring.d1*trans.scale, (ring.d1/ring.e)*trans.scale, ring.a, Math.PI, 0, true);
+              ctx.ellipse(scaledPos.x, scaledPos.y, ring.d2*trans.scale, (ring.d2/ring.e)*trans.scale, ring.a, 0, Math.PI, false);
+            }
+            ctx.fill();
+          }
+        }
+        this.sun.eachSatelite(drawRings, this.ctx, this.trans, far);
+      }
+
+      MovingRect.prototype.drawPlanets = function() {
+        function drawOrbit(ctx, trans) {
+          if (window.hideOrbits) 
+            return;
+          if (this.sun && !this.asteroid) {
+            ctx.setLineDash([4, 2]);
+            ctx.lineWidth = 0.5;
+            ctx.strokeStyle = this.getColor(80);
+            ctx.beginPath();
+
+            let scaledPos = this.sun.pos.scaled(trans);
+            ctx.arc(scaledPos.x, scaledPos.y, this.d*trans.scale, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
+        }
+
+        function drawPlanet(ctx, trans) {
+          if (!this.sun) drawSun(this, ctx, trans);
+          else if (this.tex) drawPlanetTex(this, ctx, trans);
+          else drawPlanetCol(this, ctx, trans);
+        }
+
+        function drawPlanetTex(planet, ctx, trans) {
+          let scaledPos = planet.pos.scaled(trans);
+          const pattern = ctx.createPattern(planet.tex, 'no-repeat');
+          const scaleF = ((planet.r*2)*trans.scale)/planet.tex.width;
+          pattern.setTransform(new DOMMatrixReadOnly([scaleF, 0, 0, scaleF, scaledPos.x-(planet.r)*trans.scale, scaledPos.y-(planet.r)*trans.scale]));
+          ctx.fillStyle = pattern;
+          ctx.beginPath();
+          ctx.arc(scaledPos.x, scaledPos.y, planet.r*trans.scale, 0, 2 * Math.PI);
+          ctx.fill();
+
+          let a = Point.fromPos(planet.pos).sub(planet.systemSun().pos).ang() + Math.PI;
+          let s = Point.fromPos(scaledPos).add(Point.fromPolar(a, planet.r*trans.scale*0.8));
+          let gradient = ctx.createRadialGradient(s.x,s.y,planet.r*trans.scale*0.6*2, s.x,s.y,planet.r*trans.scale*0.7*2);
+          gradient.addColorStop(0.3, 'rgba(0,0,0,0%)');
+          gradient.addColorStop(1, 'rgba(0,0,0,70%)');
+          
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(scaledPos.x, scaledPos.y, planet.r*trans.scale, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        function drawPlanetCol(planet, ctx, trans) {
+          let scaledPos = planet.pos.scaled(trans);
+          if (!planet.asteroid) {
+            let a = Point.fromPos(planet.pos).sub(planet.systemSun().pos).ang() + Math.PI;
+            let s = Point.fromPos(scaledPos).add(Point.fromPolar(a, planet.r*trans.scale*0.8));
+            let gradient = 
+              ctx.createRadialGradient(s.x,s.y,planet.r*trans.scale*0.6*2, s.x,s.y,planet.r*trans.scale*0.7*2);
+            gradient.addColorStop(0.3, planet.color);
+            gradient.addColorStop(1, planet.getColor(30));
+            ctx.fillStyle = gradient; 
+          } else {
+            ctx.fillStyle = planet.color;
+          }
+          ctx.beginPath();
+          ctx.arc(scaledPos.x, scaledPos.y, planet.r*trans.scale, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        function drawSun(sun, ctx, trans) {
+          let scaledPos = sun.pos.scaled(trans);
+          let gradient = ctx.createRadialGradient(scaledPos.x, scaledPos.y,sun.r*trans.scale, scaledPos.x, scaledPos.y,sun.r*1.4*trans.scale);
+          gradient.addColorStop(0, 'rgba(255,255,255,80%)');
+          gradient.addColorStop(1, 'rgba(255,255,255,0%)');
+          ctx.fillStyle = gradient; 
+          ctx.beginPath();
+          ctx.arc(scaledPos.x, scaledPos.y, sun.r*1.5*trans.scale, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = sun.color;
+          ctx.beginPath();
+          ctx.arc(scaledPos.x, scaledPos.y, sun.r*trans.scale, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        this.sun.eachSatelite(drawOrbit, this.ctx, this.trans);
+        this.sun.eachSatelite(drawPlanet, this.ctx, this.trans);
+      }
+
+      MovingRect.prototype.drawMan = function() {
+        let scaledPos = this.man.pos.scaled(this.trans);
+        let t, a = this.man.a;
+
+        if (!this.man.onPlanet) {
+          if (this.man.thrust.u) {
+            this.ctx.fillStyle = '#f60';
+            this.ctx.beginPath();
+            let r = randomRange(4,12);
+            t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -r));
+            this.ctx.arc(t.x, t.y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+          }
+          if (this.man.thrust.d) {
+            this.ctx.fillStyle = '#06f';
+            this.ctx.beginPath();
+            let r = randomRange(2,6);
+            t = Point.fromPos(scaledPos).add(Point.fromPolar(a, r+18));
+            this.ctx.arc(t.x, t.y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+          }
+          if (this.man.thrust.r) {
+            this.ctx.fillStyle = '#06f';
+            this.ctx.beginPath();
+            let r = randomRange(2,6);
+            t = Point.fromPos(scaledPos).
+              add(Point.fromPolar(a, 14)).
+              add(Point.fromPolar(a-Math.PI/2, r+4));
+            this.ctx.arc(t.x, t.y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+          }
+          if (this.man.thrust.l) {
+            this.ctx.fillStyle = '#06f';
+            this.ctx.beginPath();
+            let r = randomRange(2,6);
+            t = Point.fromPos(scaledPos).
+              add(Point.fromPolar(a, 14)).
+              add(Point.fromPolar(a+Math.PI/2, r+4));
+            this.ctx.arc(t.x, t.y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+          }
+        }
+
+        this.ctx.fillStyle = '#aaaaaa';
+        this.ctx.beginPath();
+        t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 5));
+        this.ctx.arc(t.x, t.y, 10, 0, 2 * Math.PI);
+        this.ctx.fill();
+
+        this.ctx.beginPath();
+        t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 15));
+        this.ctx.arc(t.x, t.y, 4, 0, 2 * Math.PI);
+        this.ctx.fill();
+
+        this.ctx.beginPath();
+        t = Point.fromPos(scaledPos).sub(Point.fromPolar(a-Math.PI/3, 6));
+        this.ctx.arc(t.x, t.y, 4, 0, 2 * Math.PI);
+        this.ctx.fill();
+
+        this.ctx.beginPath();
+        t = Point.fromPos(scaledPos).sub(Point.fromPolar(a+Math.PI/3, 6));
+        this.ctx.arc(t.x, t.y, 4, 0, 2 * Math.PI);
+        this.ctx.fill();
+
+        if(this.man.onPlanet&&this.man.onPlanet.map) {
+          const r = 250/2; 
+          const dr = r/(this.man.onPlanet.map.width/2);
+          const pattern = this.ctx.createPattern(this.man.onPlanet.map, 'no-repeat');
+          pattern.setTransform(new DOMMatrix([dr, 0, 0, dr, 10, 10]));
+          this.ctx.fillStyle = pattern;
+          this.ctx.beginPath();
+          this.ctx.arc(r+10, r+10, r, 0, 2 * Math.PI);
+          this.ctx.fill();
+        }
+
+        const xx=230, yy=70;
+        this.ctx.strokeStyle = '#555';
+        this.ctx.fillStyle = '#fff';
+        this.ctx.lineWidth=2;
+        this.ctx.setLineDash([]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(-10+xx,0+yy);
+        this.ctx.lineTo(-12+xx,5+yy);
+        this.ctx.lineTo(-15+xx,-5+yy);
+        this.ctx.lineTo(-10+xx,-15+yy);
+        this.ctx.fill();
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.moveTo(10+xx,0+yy);
+        this.ctx.lineTo(12+xx,5+yy);
+        this.ctx.lineTo(15+xx,-5+yy);
+        this.ctx.lineTo(10+xx,-15+yy);
+        this.ctx.fill();
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.moveTo(-10+xx,0+yy);
+        this.ctx.bezierCurveTo(-15+xx, -20+yy, -20+xx, -20+yy,  0+xx, -60+yy);
+        this.ctx.bezierCurveTo( 20+xx, -20+yy,  15+xx, -20+yy, 10+xx,   0+yy);
+        this.ctx.closePath();
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        // let c = document.createElement('canvas');
+        // c.width = c.height = 500;
+        // let ctx = c.getContext("2d");
+        // ctx.lineWidth = 30;
+        // ctx.globalAlpha = 0.3;
+        // ctx.lineCap = 'round';
+        // ctx.save();
+        // for (i=0;i<10;++i) {
+        //   let gradient = ctx.createLinearGradient(250, 250, 250, 0);
+        //   gradient.addColorStop(0, '#fff');
+        //   gradient.addColorStop(1, 'rgba(0,50,255,0)');
+        //   ctx.strokeStyle = gradient;
+        //   ctx.translate(250, 250); // translate to rectangle center
+        //   ctx.rotate((Math.PI / 180) * (Math.random()*30-15)); // rotate
+        //   ctx.translate(-250, -250); // translate back
+        //   ctx.beginPath();
+        //   ctx.moveTo(250,250);
+        //   ctx.lineTo(250,0);
+        //   ctx.stroke();
+        //   ctx.restore();
+        //   ctx.save();
+        // }
+        // this.ctx.drawImage(c, 300, 10);
+      }
+
+      MovingRect.prototype.moveRockets = function() {
+        for (let rocket of this.rockets) {
+          rocket.move(this.sun);
+          if (rocket.onPlanet) {
+            this.rockets.delete(rocket);
+          }
+        }
+      }
+
+      MovingRect.prototype.drawRockets = function() {
+        for (let rocket of this.rockets) {
+          let sps = rocket.pos.scaled(this.trans);
+          let spe = rocket.pos.scaled(this.trans).sub(Point.fromPolar(rocket.a, 20));
+
+          this.ctx.strokeStyle = '#fff';
+          this.ctx.setLineDash([]);
+          this.ctx.lineWidth = 3;
+          this.ctx.beginPath();
+          this.ctx.moveTo(sps.x,sps.y);
+          this.ctx.lineTo(spe.x, spe.y);
+          this.ctx.stroke();
+          if (rocket.fuel > 0) {
+            this.ctx.fillStyle = '#fe0';
+            this.ctx.beginPath();
+            this.ctx.arc(sps.x,sps.y, randomRange(2,6), 0, 2 * Math.PI);
+            this.ctx.fill();
+          }
+        }
+      }
+
+      MovingRect.prototype.draw = function() {
+        this.ctx.fillStyle = "rgb(0,0,0)";
+        this.ctx.fillRect(0, 0, canvas.width, canvas.height);
+        this.drawStars();        
+        this.movePlanets();
+        if (this.man)
+          this.man.move(this.sun);
+        this.moveRockets();
+        this.drawPlanetsRings(true);
+        this.drawPlanets();
+        this.drawRockets();
+        if (this.man)
+          this.drawMan();
+        this.drawPlanetsRings(false);
+
+        // if (this.man && this.man.onPlanet) {
+        //   let planet = this.man.onPlanet;
+        //   let scaledPos = planet.pos.scaled(this.trans);
+        //   this.ctx.strokeStyle = 'rgba(255,255,0,0.4)'; 
+        //   this.ctx.beginPath();
+        //   this.ctx.arc(scaledPos.x, scaledPos.y, planet.r*this.trans.scale+40, 0, 2 * Math.PI);
+        //   this.ctx.moveTo(
+        //     scaledPos.x+(planet.r*this.trans.scale+40) * Math.cos(Math.PI/4),
+        //     scaledPos.y+(planet.r*this.trans.scale+40) * Math.sin(Math.PI/4))
+        //   this.ctx.lineTo(
+        //     scaledPos.x+(planet.r*this.trans.scale+140) * Math.cos(Math.PI/4),
+        //     scaledPos.y+(planet.r*this.trans.scale+140) * Math.sin(Math.PI/4))
+        //   this.ctx.stroke();
+        // }
+
+
+        if (this.man && !window.toPopoulate) {
+          let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
+          if (window.scale)  {
+            if (this.trans.scale < 0.1)
+              c = new Point(0, 0);
+            this.setCenter(c, window.scale);
+          } else {
+            this.setCenter(c, this.man.thrust.u || this.man.thrust.d ? 0.1 : 0.2);
+          }
+        }
+        if (window.toPopoulate) {
+          this.ctx.textAlign = 'center';
+          this.ctx.font = '30px serif';
+          this.ctx.fillStyle = '#fff';
+          this.ctx.fillText('Generating worlds...', this.width/2, this.height/6);
+        }
+
+        requestAnimationFrame(()=>{this.draw()});
+      };
+    </script>
+  </head>
+  <body style="margin: 0px; overflow: hidden">
+    <canvas id="canvas" width="500" height="500" style="margin: 0px; overflow: hidden"></canvas>
+  </body>
+  <script>
+    const canvas = document.getElementById('canvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    mr = new MovingRect(canvas, 16, 16);
+    mr.draw();
+    window.hideOrbits = false;
+
+    document.addEventListener('keydown', function(e) {
+      switch (e.code) {
+        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; break;
+        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; break;
+        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; break;
+        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; break;
+        case 'NumpadAdd': case 'Equal': window.scale = 0.4; break;
+        case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
+      }
+      console.log(e.code);
+    });
+
+    document.addEventListener('keyup', function(e) {
+      switch (e.code) {
+        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = false; break;
+        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
+        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
+        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
+        case 'Space': mr.man.fireRocket(mr); break;
+        case 'NumpadAdd': case 'Equal': 
+        case 'NumpadSubtract': case 'Minus': window.scale = false; break;
+        case 'KeyO': window.hideOrbits = !window.hideOrbits; break;
+        case 'Digit1': 
+          if (mr.man.onPlanet && mr.man.onPlanet.tex && mr.man.onPlanet.sun) {
+            mr.man.onPlanet.generateTexture(0.1);
+          }
+        break;
+        case 'Digit2': 
+        if (mr.man.onPlanet && mr.man.onPlanet.tex && mr.man.onPlanet.sun) {
+            mr.man.onPlanet.generateTexture(0.4);
+          }
+        break;
+        case 'Digit3': 
+          if (mr.man.onPlanet && mr.man.onPlanet.tex && mr.man.onPlanet.sun) {
+            mr.man.onPlanet.generateTexture(0.7);
+          }
+        break;
+        case 'Digit4': 
+          if (mr.man.onPlanet && mr.man.onPlanet.sun) {
+            if (mr.man.onPlanet.rings) 
+              delete mr.man.onPlanet.rings;
+            else 
+              mr.man.onPlanet.generateRings();
+          }
+        break;
+        case 'KeyZ': mr.man.dp.set(0,0); break;
+      }
+    });
+
+  </script>
+</html>
