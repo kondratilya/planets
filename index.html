@@ -546,14 +546,16 @@
       uniform vec3 u_color;
 
       uniform float u_frame;
+      uniform float u_thrust;
 
       void main() {
         float y = v_rpos.y/2.;
-        float w = length((v_rpos-vec2(0, 1.))*vec2(0.6+y, 1));
-
+        float w = length((v_rpos/vec2(1, u_thrust)-vec2(0, 1.))*vec2(0.6+y, 1));
+        w += sin(y*10.-u_frame)*0.2;
         if (w<1.) {
-          vec4 noize = vec4(6., 0.8, 2.5, 1.);
-          float color = noize_harm(vec3(v_rpos*vec2(w, 1)+vec2(0, -u_frame*0.4), 0), noize);
+          vec4 noize = vec4(6.*u_thrust, 0.8*u_thrust, 2.5, 1.);
+          float color = noize_harm(vec3(v_rpos*vec2(w, 1)+vec2(0, -u_frame*0.4), 0), noize)*(2.-u_thrust);
+          //color = 1.;
           gl_FragColor = vec4(vec3(u_color.r*color, u_color.g*color, u_color.b*(1.-y)), (1.-w)*color);
         } else {
           discard;
@@ -625,6 +627,8 @@
       uniform float u_rotation;
       uniform float u_random;
       uniform float u_dust;
+      uniform float u_stars;
+      uniform float u_smallstars;
 
       vec2 star(vec2 craterpos, float scale, float glow) {
         vec2 p = abs((v_rpos)-craterpos);
@@ -636,11 +640,13 @@
       vec2 stars() {
         vec2 s;
         float pr = N2(v_rpos+vec2(u_random, 0));
-        if (pr>0.99)
+        if (pr>u_smallstars)
           s.x = N2(v_rpos+100.); 
-        for (float i=0.;i<300.;++i) {
-           vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
-           s += star(c, pow(N2(c), 2.)/length(u_scale)*10., 10.);
+        for (float i=0.;i<1000.;++i) {
+          if (N2(vec2(i, u_random))>u_stars) {
+            vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
+            s += star(c, pow(N2(c), 2.)/length(u_scale)*10., 10.);
+          }
         }
         return s;
       }
@@ -1390,7 +1396,7 @@
             seacolor: [0.0, {min:0.2, max: 0.4}, 1],
             moisturemap: [10, 0.6, 2.5, 1],
             grain: [0.5, 0.1],
-            clouds: [3, 0.8, 2.5, 0.9],
+            clouds: [1, 1, 2.5, 0.9],
             wind: 1.2,
             cloudy: 0.4,
             cloudchange: 0.1,
@@ -1436,7 +1442,7 @@
             ],
             grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.25,}],
             clouds: [
-              {mean: 6, dev: 1,},
+              {mean: 4, dev: 1,},
               {mean: 0.6, dev: 0.2, max: 1.2},
               {mean: 2.5, dev: 0.3,},
               {mean: 0.9, dev: 0.2,},
@@ -1749,7 +1755,29 @@
           this.f = new Point();
           this.fuel = 100;
           this.thrust = {
-            get on() { return !!(this.u || this.d || this.l || this.r) }
+            u0: 0.1,
+            d0: 0.1,
+            l0: 0.1,
+            r0: 0.1,
+            du: 0.05,
+            dd: 0.1,
+            dl: 0.1,
+            dr: 0.1,
+            get on() { return !!(this.u || this.d || this.l || this.r) },
+            set u(x) { if(!!x!=!!this.u)this._u = x?this.u0:false; },
+            set d(x) { if(!!x!=!!this.d)this._d = x?this.d0:false; },
+            set l(x) { if(!!x!=!!this.l)this._l = x?this.l0:false; },
+            set r(x) { if(!!x!=!!this.r)this._r = x?this.r0:false; },
+            get u() { return this._u; },
+            get d() { return this._d; },
+            get l() { return this._l; },
+            get r() { return this._r; },
+            move() {
+              if (this._u)this._u = Math.min(1, this._u+this.du);
+              if (this._d)this._d = Math.min(1, this._d+this.dd);
+              if (this._l)this._l = Math.min(1, this._l+this.dl);
+              if (this._r)this._r = Math.min(1, this._r+this.dr);
+            }
           }
           this.frame = 0;
         }
@@ -1789,6 +1817,17 @@
           // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
           // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
           // mr.ctx.stroke();
+
+          let wasOnPlanet = this.onPlanet;
+
+          this.stillTakingOff = false;
+          if (!this.onPlanet) {
+            sun.collision(this);
+          }
+          if (!this.stillTakingOff) {
+            this.takingOff = false;
+          }
+
           let sp=1;
           let ts = 1;
           if (mr.manNewPos) {
@@ -1798,8 +1837,10 @@
             let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
             
             if (diff.len() < 5000)ts += (diff.len()-5000)/5000;
-            if (da < 0){this.thrust.l = true;this.thrust.r=false;}
-            if (da > 0){this.thrust.r = true;this.thrust.l=false;}
+            if(!this.takingOff && !this.onPlanet) {
+              if (da < 0){this.thrust.l = true;this.thrust.r=false;}
+              if (da > 0){this.thrust.r = true;this.thrust.l=false;}
+            }
             this.thrust.u = true;
                            
             if (diff.len() < 2000)sp = 0.5;
@@ -1811,17 +1852,16 @@
             }
           }
 
-          let wasOnPlanet = this.onPlanet;
-
-          this.stillTakingOff = false;
-          if (!this.onPlanet) {
-            sun.collision(this);
-          }
-          if (!this.stillTakingOff) {
-            this.takingOff = false;
-          }
           if (!this.thrust.on) {
             this.takingOff = false;
+          }
+
+          if (this.takingOff) {
+            if (this.pos.dist(this.takingOff.pos)<this.takingOff.radius) {
+              this.onPlanetA = Point.fromPos(this.pos).sub(this.takingOff.pos).ang();
+              this.pos = Point.fromPolar(this.onPlanetA, this.takingOff.radius).add(this.takingOff.pos);
+            }
+
           }
 
           if (!wasOnPlanet && this.onPlanet) {
@@ -1836,19 +1876,19 @@
 
           if (!this.onPlanet) {
             if (this.thrust.u) {
-              this.dp.sub(Point.fromPolar(this.a, 5*sp));
+              this.dp.sub(Point.fromPolar(this.a, 5*this.thrust.u*sp));
               this.fuel -= 1;
             }
             if (this.thrust.d) {
-              this.dp.add(Point.fromPolar(this.a, 2.5));
+              this.dp.add(Point.fromPolar(this.a, 2.5*this.thrust.d));
               this.fuel -= 0.5;
             }
             if (this.thrust.r) {
-              this.a += 0.05/this.thrust.planetary;
+              this.a += (0.05*this.thrust.r)/this.thrust.planetary;
               this.fuel -= 0.01;
             }
             if (this.thrust.l) {
-              this.a -= 0.05/this.thrust.planetary;
+              this.a -= (0.05*this.thrust.l)/this.thrust.planetary;
               this.fuel -= 0.01;
             }
             if (this.thrust.planetary > 1)
@@ -1915,6 +1955,7 @@
           }
 
           this.pos.sub(this.dp);
+          this.thrust.move();
         }
 
         fireRocket(world) {
@@ -2079,7 +2120,13 @@
       MovingRect.prototype.genarateStars = function() {
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
-        this.stars = window.renderer.texture({random:this.random.rand(), dust:this.random.range(-1,1)}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        let params = {
+          random:this.random.rand(), 
+          dust:this.random.range(-1,1),
+          stars: this.random.range(0.1,0.99),
+          smallstars: this.random.range(0.98,0.999),
+        };
+        this.stars = window.renderer.texture(params, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
         // window.renderer.useProgram('distort');
         // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
@@ -2159,7 +2206,7 @@
           window.renderer.useProgram('flame');
           if (this.man.thrust.u) {
             t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
-            window.renderer.render({color:[1.0,0.3,1.0], frame:this.man.frame}, t.x, t.y, 10, 30, -a-Math.PI/2);
+            window.renderer.render({color:[1.0,0.5,1.0], frame:this.man.frame, thrust:this.man.thrust.u}, t.x, t.y, 10, 30, -a-Math.PI/2);
           }
           let l = 1, r = 0;
           if (this.man.thrust.d) {
@@ -2169,16 +2216,18 @@
             else r = -0.5;
           }
           if (this.man.thrust.d || this.man.thrust.r) {
+            let thrust = ((this.man.thrust.d||0)+(this.man.thrust.r||0))/(!!this.man.thrust.d+!!this.man.thrust.r);
             t = Point.fromPos(scaledPos).
               add(Point.fromPolar(a, 25)).
               add(Point.fromPolar(a-Math.PI/2, 10));
-            window.renderer.render({color:[0.1,0.3,1.0], frame:this.man.frame}, t.x, t.y, 5, 20, -a+Math.PI*l);
+            window.renderer.render({color:[0.1,0.5,1.0], frame:this.man.frame, thrust:thrust}, t.x, t.y, 5, 20, -a+Math.PI*l);
           }
           if (this.man.thrust.d || this.man.thrust.l) {
+            let thrust = ((this.man.thrust.d||0)+(this.man.thrust.l||0))/(!!this.man.thrust.d+!!this.man.thrust.l);
             t = Point.fromPos(scaledPos).
               add(Point.fromPolar(a, 25)).
               add(Point.fromPolar(a-Math.PI/2, -10));
-           window.renderer.render({color:[0.1,0.3,1.0], frame:this.man.frame}, t.x, t.y, 5, 20,  -a-Math.PI*r);
+           window.renderer.render({color:[0.1,0.5,1.0], frame:this.man.frame, thrust:thrust}, t.x, t.y, 5, 20,  -a-Math.PI*r);
           }
         }
         renderer.setPositions();
@@ -2208,7 +2257,7 @@
             renderer.setPositions([-1, 0,  1, 0,  -1, 2,  -1, 2,  1, 0,  1, 2,]);
             let t1 = Point.fromPos(t).add(Point.fromPolar(rocket.a, 15));
             window.renderer.useProgram('flame');
-            window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
+            window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame, thrust:1}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
           }
           renderer.setPositions();
           window.renderer.useProgram('missile');
@@ -2281,7 +2330,9 @@
 
     document.addEventListener('keydown', function(e) {
       if (e.repeat) { return }
-      switch (e.code) {
+      window.keys = window.keys || {};
+      window.keys[e.code] = true;
+      switch (e.code) {  
         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
@@ -2293,6 +2344,8 @@
     });
 
     document.addEventListener('keyup', function(e) {
+      window.keys = window.keys || {};
+      window.keys[e.code] = false;
       switch (e.code) {
         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = false; break;
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
