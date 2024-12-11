@@ -666,17 +666,25 @@
         p.x = min(p.x-1., p.x);
         p.y = min(p.y-1., p.y);
         float l = length(p);
-        return vec2(l < scale ? 1. - l/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
+        float lr = l;
+        if (scale > 0.011)
+          lr = l * max(0.001, pow((abs(abs(p.x)-abs(p.y))), 0.9))*300.;
+        return vec2(lr < scale ? 1. - lr/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
       vec2 stars() {
         vec2 s;
         float pr = N2(v_rpos+vec2(u_random, 0));
+        float bigstar;
+        float size;
         if (pr>u_smallstars)
           s.x = N2(v_rpos+100.); 
         for (float i=0.;i<1000.;++i) {
-          if (N2(vec2(i, u_random))>u_stars) {
+          bigstar = N2(vec2(i, u_random));
+          if (bigstar > u_stars) {
             vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
-            s += star(c, pow(N2(c), 2.)/length(u_scale)*10., 10.);
+            size = 10.;
+            if (bigstar > 0.99) size *= 2.;
+            s += star(c, pow(N2(c), 2.)/length(u_scale)*size, 10.);
           }
         }
         return s;
@@ -1838,7 +1846,7 @@
           let d = Point.fromPos(this.pos).sub(trans.pos).mul(-0.1);
           this.params.s_position = [d.x, d.y];
           this.rotation = this.orbit.angle;
-          this.params.s_scale = [1024, 1024];
+          this.params.s_scale = [window.mr.starsSize, window.mr.starsSize];
           this.params.image = window.mr.stars;
           let scaledPos = this.pos.scaled(trans);
           let radius = Math.min(this.radius/this.params.radius, 1500);
@@ -2312,7 +2320,8 @@
         this.sun.populate(getParam('population'));
       } 
 
-      MovingRect.prototype.genarateStars = function() {
+      MovingRect.prototype.genarateStars = function(size) {
+        this.starsSize = size || 2048;
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
         let params = {
@@ -2321,7 +2330,7 @@
           stars: this.random.range(0.1,0.99),
           smallstars: this.random.range(0.98,0.999),
         };
-        this.stars = window.renderer.texture(params, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        this.stars = window.renderer.texture(params, this.starsSize, false, {MIN_FILTER: window.renderer.gl.LINEAR});
         // window.renderer.useProgram('distort');
         // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
@@ -2329,7 +2338,7 @@
       MovingRect.prototype.drawStars = function() {
         let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
         window.renderer.useProgram('space');
-        window.renderer.render({image:this.stars}, d.x, d.y, 1024);
+        window.renderer.render({image:this.stars}, d.x, d.y, this.starsSize);
       }
 
       MovingRect.prototype.drawPlanets = function() {
