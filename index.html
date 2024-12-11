@@ -186,9 +186,37 @@
         return vec2(cos(da)*dr, sin(da)*dr);
       }
 
-      vec3 hsl2rgb(vec3 c ) {
+      vec3 hsl2rgb(vec3 c) {
         vec3 rgb = clamp( abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0 );
         return c.z + c.y * (rgb-0.5)*(1.0-abs(2.0*c.z-1.0));
+      }
+
+      vec3 rgb2hsl(vec3 c){
+        float h = 0.0;
+        float s = 0.0;
+        float l = 0.0;
+        float r = c.r;
+        float g = c.g;
+        float b = c.b;
+        float cMin = min( r, min( g, b ) );
+        float cMax = max( r, max( g, b ) );
+        l = ( cMax + cMin ) / 2.0;
+        if ( cMax > cMin ) {
+          float cDelta = cMax - cMin;
+          s = l < .0 ? cDelta / ( cMax + cMin ) : cDelta / ( 2.0 - ( cMax + cMin ) );
+          if ( r == cMax ) {
+            h = ( g - b ) / cDelta;
+          } else if ( g == cMax ) {
+            h = 2.0 + ( b - r ) / cDelta;
+          } else {
+            h = 4.0 + ( r - g ) / cDelta;
+          }
+          if ( h < 0.0) {
+            h += 6.0;
+          }
+          h = h / 6.0;
+        }
+        return vec3(h, s, l);
       }
     </script>
 
@@ -465,6 +493,8 @@
       varying vec2 v_rpos;
       uniform float u_random;
       uniform float u_innerradius;
+      uniform float u_transparency;
+      uniform vec3 u_color;
       vec4 noize = vec4(2,0.8,2.5,1);
 
       float v(float length) {
@@ -476,7 +506,8 @@
         if (length > u_innerradius && length < 1.0) {
           float a = atan(v_rpos.y, v_rpos.x);
           float x = v(length);
-          gl_FragColor = vec4(x * smoothstep(1.,0.8,length) * smoothstep(u_innerradius,u_innerradius+0.1,length), a < 0.0, 0, 1);
+          vec3 color = hsl2rgb(rgb2hsl(u_color)+vec3((v(length+10.)-0.5)/1.,0,0));
+          gl_FragColor = vec4(color, x * smoothstep(1.,0.8,length) * smoothstep(u_innerradius,u_innerradius+0.1,length) * (1.0-u_transparency));
         } else {
           discard;
         }
@@ -487,8 +518,6 @@
       varying vec2 v_rpos, v_tpos;
 
       uniform sampler2D u_image;
-      uniform vec3 u_color;
-      uniform float u_transparency;
       uniform int u_bf;
       uniform float u_angle;
       uniform float u_innerradius;
@@ -497,10 +526,9 @@
         float len = length(v_rpos);
         float a = atan(v_rpos.y, v_rpos.x);
         float side_mask = float(u_bf == int(a < 0.0));
-
         if (len > u_innerradius && len < 1.0) {
           vec4 tex = texture2D(u_image, v_tpos, cos((a+M_PI/2.)*2.)*2.);
-          gl_FragColor = vec4(u_color, tex.x * side_mask * (1.0-u_transparency));
+          gl_FragColor = vec4(tex.rgb, tex.a*side_mask);
         } else {
           discard;
         }
@@ -1433,7 +1461,7 @@
                 this.random.range(Math.PI*2), 
                 Math.sqrt((this.radius+r)/(d**2))/3,
                 this.random.range(Math.PI*2),
-                this.random.range(Math.PI*2)/100
+                this.random.range(0.3, Math.PI*2)/300
               );
               const planet = new Planet(this, 4/3*Math.PI*r, r, orbit);
               planet.populate(population);
@@ -1727,7 +1755,7 @@
             innerradius: r1/r2,
             random: this.random.rand()*1000,
             color: [luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1)],
-            transparency: this.random.range(0.6, 0.8),
+            transparency: this.random.range(0.1, 0.2),
           };
           window.renderer.useProgram('rings-texture');
           this.rings.image = window.renderer.texture(this.rings, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
