@@ -667,8 +667,11 @@
         p.y = min(p.y-1., p.y);
         float l = length(p);
         float lr = l;
-        if (scale > 0.011)
+        if (scale > 0.011){
           lr = l * max(0.001, pow((abs(abs(p.x)-abs(p.y))), 0.9))*300.;
+          scale *= N2(craterpos+1000.)+0.5;
+          return vec2((lr < scale ? 1. - lr/scale : 0.)*2., l < scale*glow ? 1. - l/(scale*glow) : 0.);
+        }
         return vec2(lr < scale ? 1. - lr/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
       vec2 stars() {
