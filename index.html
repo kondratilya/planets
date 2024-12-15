@@ -667,11 +667,11 @@
         p.y = min(p.y-1., p.y);
         float l = length(p);
         float lr = l;
-        if (scale > 0.011){
+        /*if (scale > 0.011){
           lr = l * max(0.001, pow((abs(abs(p.x)-abs(p.y))), 0.9))*300.;
           scale *= N2(craterpos+1000.)+0.5;
           return vec2((lr < scale ? 1. - lr/scale : 0.)*2., l < scale*glow ? 1. - l/(scale*glow) : 0.);
-        }
+        }*/
         return vec2(lr < scale ? 1. - lr/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
       vec2 stars() {
@@ -1846,20 +1846,10 @@
         }
         drawOne(trans) {
           this.params.frame = this.orbit.rotationAngle;
-          let d = Point.fromPos(this.pos).sub(trans.pos).mul(-0.1);
-          this.params.s_position = [d.x, d.y];
           this.rotation = this.orbit.angle;
-          this.params.s_scale = [window.mr.starsSize, window.mr.starsSize];
-          this.params.image = window.mr.stars;
+          //this.params.roll = Math.sin(this.orbit.rotationAngle/10)/2.;
           let scaledPos = this.pos.scaled(trans);
           let radius = Math.min(this.radius/this.params.radius, 1500);
-
-          window.renderer.programs['black-hole'].use().renderer.render(
-            this.params, 
-            scaledPos.x, scaledPos.y,
-            radius*trans.scale, radius*trans.scale,
-            0
-          );
           if (this.accretion) {
             window.renderer.programs['black-hole-accretion'].use().renderer.render(
               this.params, 
@@ -2342,6 +2332,21 @@
         let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
         window.renderer.useProgram('space');
         window.renderer.render({image:this.stars}, d.x, d.y, this.starsSize);
+        
+        if (this.sun instanceof BlackHole) {
+          this.sun.params.s_position = [d.x, d.y];
+          this.sun.params.s_scale = [this.starsSize, this.starsSize];
+          this.sun.params.image = this.stars;
+          let scaledPos = this.sun.pos.scaled(this.trans);
+          let radius = Math.min(this.sun.radius/this.sun.params.radius, 1500);
+
+          window.renderer.useProgram('black-hole').renderer.render(
+            this.sun.params, 
+            scaledPos.x, scaledPos.y,
+            radius*this.trans.scale, radius*this.trans.scale,
+            0
+          );
+        }
       }
 
       MovingRect.prototype.drawPlanets = function() {
