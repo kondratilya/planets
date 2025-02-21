@@ -289,6 +289,7 @@
           height = noize_harm(vec3(0,noize_harm(noizeCoord, u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord+vec3(0,0,10000.0), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         } else {
+          noizeCoord.z += sin(noize_harm(noizeCoord, u_moisturemap) * M_PI * 2.) * .1;
           height = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
           moisture = noize_harm(vec3(0,noize_harm(noizeCoord*vec3(1,1,u_jpfactor*2.), u_heightmap)*u_jpfactor, loopCoord.y), u_heightmap);
         }
@@ -1611,7 +1612,12 @@
               {min: 0, max: 2,},
               {min: 0, max: 0.2,},
             ],
-            moisturemap: [10, 0.6, 2.5, 1],
+            moisturemap: [
+              {mean: 10, dev: 5,},
+              {mean: 0.5, dev: 0.1,},
+              {mean: 2.5, dev: 0.2,},
+              {value: 1,},
+            ],
             grain: [0.5, 0.2],
             clouds: [3, 0.8, 2.5, 0.9],
             wind: 1.2,
