@@ -352,16 +352,17 @@
       #define r 30.
       varying vec2 v_rpos;
       uniform sampler2D u_image;
-      uniform vec2 u_resolution;
+      uniform vec2 u_scale;
+      uniform float u_waterlevel;
 
       float v(vec2 p) {
         vec4 t = texture2D(u_image, (v_rpos/2.0)+p);
         float h = t.x;
-        return h<0.3?1.:0.;
+        return h < u_waterlevel ? 1. : 0.;
       }
 
       void main() {
-        vec2 pixel = vec2(1.0, 1.0) / u_resolution;
+        vec2 pixel = vec2(1.0, 1.0) / u_scale;
         float h=0., n=0.;
 
         for (float x=-r;x<=r;++x) {
@@ -416,6 +417,7 @@
       uniform float u_rotation;
       uniform float u_random;
       uniform float u_seashine;
+      uniform float u_waterlevel;
 
       uniform vec4 u_clouds;
       uniform float u_wind;
@@ -432,7 +434,7 @@
 
         vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
-        if (height < 0.75) {
+        if (height < u_waterlevel) {
           vec3 sea = min(u_seacolor*max(height, 0.2)+tex.z/10., 1.0);
           if (light > 0.0 && u_seashine > 1.0){
             sea += pow(light, u_seashine);
@@ -449,7 +451,7 @@
       vec3 color_lava(vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
-        float waterlevel = 0.3;//tex2.x-0.2;
+        float waterlevel = u_waterlevel;
 
         vec3 land = vec3(height)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
@@ -754,7 +756,7 @@
         #endif
         return vec2(lr < scale ? 1. - lr/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
-      
+
       vec2 stars() {
         vec2 s;
         float pr = N2(v_rpos+vec2(u_random, 0));
@@ -1648,6 +1650,7 @@
             groundcolor2: [1.41, 0.24, 0.33],
             seacolor: [0.0, {min:0.2, max: 0.4}, 1],
             moisturemap: [10, 0.6, 2.5, 1],
+            waterlevel: 0.75,
             grain: [0.5, 0.2],
             clouds: [1, 1, 2.5, {mean: 0.9, dev: 0.5,}],
             wind: 1.2,
@@ -1757,6 +1760,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
+            waterlevel: {min:0.2, max: 0.3},
             grain: [0.5, 0.4],
             clouds: [3, 0.9, 2.5, {mean: 0.9, dev: 0.5,}],
             wind: 1.2,
@@ -1808,6 +1812,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
+            waterlevel: {mean: 0.75, dev: 0.5,},
             grain: [{min: 0, max: 1,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 3, dev: 1,},
