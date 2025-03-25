@@ -956,6 +956,57 @@
       }
     </script>
 
+    <script id="fragment-shader-galaxy" type="notjs">
+      varying vec2 v_rpos, v_dpos;
+      uniform float u_roll;
+      uniform float u_random;
+      uniform float u_spin;
+      uniform float u_arms;
+
+      uniform sampler2D u_image;
+
+
+      vec4 noize = vec4(2,0.8,2.5,1);
+
+      float v(float length, float angle, float x, float f) {
+        angle += pow(length, .5) * f ;//- M_PI/4.;
+
+        float a = (sin((angle)*u_arms)+1.)/4.;
+
+        float mask = smoothstep(1.,0.2,length);
+        float r1 = (noize_harm(vec3(v_dpos, x), noize*vec4(1,1,1,a/10.+1.))+1.)/2.;
+
+        return (r1/2.+a)*mask;
+
+      }
+
+      void main() {
+        float d = length(v_dpos);
+        float a = atan(v_dpos.y, v_dpos.x);
+
+        if (d < 1.) {
+          gl_FragColor += vec4(vec3(1), pow(v(d, a+M_PI/2., 0., u_spin), 5.));
+          gl_FragColor += vec4(vec3(1), v(d, a+M_PI/2., 100., u_spin*0.6))/2.;
+          //gl_FragColor -= vec4(vec3(v(d, a+M_PI/2., 100.)), 0);
+          //gl_FragColor = vec4(1);
+        }
+
+        vec2 bulge = v_rpos * vec2(0.2,0.5);
+        gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(v_rpos*vec2(0.5,1.0)), 0., 1.), 2.)*500.);
+        
+
+       // vec4 t = texture2D(u_image, v_rpos/2.);
+        //gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(bulge), 0., 1.), 2.)*200.);
+        float w = gl_FragColor.a;
+        float y = N2(v_dpos+vec2(u_random, 0)) < w*2. ? N2(v_dpos+vec2(u_random*2.+10., 0))+w/2.:0.;
+
+        //gl_FragColor = vec4(t.rgb+y/2.+w, 1);
+        //gl_FragColor += vec4(vec3(1), v(d, a+M_PI/2., 100., u_spin*0.6))/2.;
+        gl_FragColor = vec4(vec3(1), y/3.+w);
+
+      }
+    </script>
+
     <script>
       function Random(seed) {
         function xoshiro128ss(a, b, c, d) {
@@ -2089,6 +2140,12 @@
           this.gdp.set(0, 0);
           let oldPos = Point.fromPos(this.pos);
 
+          if (window.hideMan) {
+            const speed = 1000;
+            this.pos.sub((this.thrust.l||0-this.thrust.r||0)*speed, (this.thrust.u||0-this.thrust.d||0)*speed);
+            return;
+          }
+
           //sun.eachSatelite(function(obj) {this.gravitate(obj)}, this);
           sun.gravitate(this);
 
@@ -2328,6 +2385,8 @@
           new Program(renderer, "black-hole-accretion", "#vertex-shader-black-hole", "#fragment-shader-black-hole-accretion");
           new Program(renderer, "black-hole", "#vertex-shader-black-hole", "#fragment-shader-black-hole");
 
+          new Program(renderer, "galaxy", "#vertex-shader-black-hole", "#fragment-shader-galaxy");
+
           window.renderer = renderer;
 
           this.setRandom(getParam('id'));
@@ -2441,6 +2500,11 @@
             0
           );
         }
+
+        if (window.testGalaxy) {
+          window.renderer.useProgram('galaxy');
+          window.renderer.render({roll:this.frame/100, spin:25, arms:2}, 266, 266, 266, 266, .5);
+        }
       }
 
       MovingRect.prototype.drawPlanets = function() {
@@ -2470,6 +2534,7 @@
       }
 
       MovingRect.prototype.drawMan = function() {
+        if(window.hideMan) return;
         // if (this.manNewPos) {
         //   window.renderer.useProgram('fill');
         //   // renderer.setPositions(this.orbitPositions);
@@ -2576,7 +2641,7 @@
               c = new Point(0, 0);
             this.setCenter(c, window.scale);
           } else {
-            this.setCenter(c, this.man.thrust.u || this.man.thrust.d ? 0.1 : 0.2);
+            this.setCenter(c, this.man.thrust.u || this.man.thrust.d || (window.hideMan && (this.man.thrust.l || this.man.thrust.r)) ? 0.1 : 0.2);
           }
         }
         this.frame++;
@@ -2663,7 +2728,14 @@
           }
         break;
         case 'Digit4': 
-          mr.sun.roll();
+          let satelites = mr.sun.satelites;
+          if (mr.random.choice([0, 1]))
+            mr.sun = new Sun(mr.random, 1000*10, 1000);
+          else
+            mr.sun = new BlackHole(mr.random, 1000*10, 1000);
+          for (let i=0; i<satelites.length;++i)
+            satelites[i].parent = mr.sun;
+          mr.sun.satelites = satelites;
         break;
         case 'Digit5': 
           mr.setRandom();
@@ -2676,6 +2748,8 @@
           mr.man.onPlanet=false;
         break;
         case 'KeyZ': mr.man.dp.set(0,0); break;
+        case 'KeyG': window.testGalaxy = !window.testGalaxy; break;
+        case 'KeyH': window.hideMan = !window.hideMan; mr.man.onPlanet=false; break;
       }
 
     });
