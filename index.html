@@ -357,8 +357,7 @@
 
       float v(vec2 p) {
         vec4 t = texture2D(u_image, (v_rpos/2.0)+p);
-        float h = t.x;
-        return h < u_waterlevel ? 1. : 0.;
+        return t.x < u_waterlevel ? 1. : 0.;
       }
 
       void main() {
