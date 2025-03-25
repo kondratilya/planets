@@ -158,7 +158,6 @@
         m1 = m1 * m1;
         return 49.0 * ( dot(m0*m0, vec3( dot( p0, x0 ), dot( p1, x1 ), dot( p2, x2 )))
                      + dot(m1*m1, vec2( dot( p3, x3 ), dot( p4, x4 ) ) ) ) ;
-
       }
 
       float noize_harm(vec4 pos, vec4 params) {
@@ -218,6 +217,10 @@
         }
         return vec3(h, s, l);
       }
+
+      float sech(float x) {
+        return 2. / (pow(2.71828, x) + pow(2.71828, -x));
+      }
     </script>
 
     <script id="vertex-shader-2d" type="notjs">
@@ -274,11 +277,54 @@
       uniform vec4 u_moisturemap;
       uniform float u_random;
       uniform vec2 u_grain;
+      uniform float u_craters;
+
+      float craters() {
+        if (u_craters <= 0.) return 0.;
+        vec2 coord = v_rpos/4.;
+        float result = 0.;
+        for (float i=1.;i<=6.;++i){
+          vec2 scoord = coord * vec2(i*i);
+          vec2 rscoord = vec2(floor(scoord.x+0.5), floor(scoord.y+0.5));
+
+          if (rscoord.x == i*i) {
+            scoord.x -= rscoord.x;
+            rscoord.x = 0.;
+          }
+
+          vec2 randInndex = vec2(rscoord + u_random + i);
+
+          if (N2(randInndex) > 1.-u_craters){ 
+            float dsize = N2(randInndex+10.)/2.;
+            vec2 dpos = vec2(N2(randInndex+20.)*2.-1., N2(randInndex+30.)*2.-1.) * dsize/2.;
+            
+            vec2 ccoord = rscoord - scoord + dpos;
+            float a = atan(ccoord.y, ccoord.x);
+            float d = length(ccoord);
+
+            dsize += noize_harm(vec3(cos(a), sin(a), rscoord.x*rscoord.y*i), u_heightmap) / (2./d);
+
+            float creterHeight = N2(randInndex+40.);
+
+            float ln = length(ccoord) * 2. + dsize;
+            if (ln > 0.) {
+              float outer = max(0., sech(ln*2.) - sech(2.));
+              float inner = 2. * pow(ln, 2.) - 0.5;
+              float center = max(0., sech(ln*8.) - sech(8.) - 0.2 - N2(randInndex+50.));
+              float crater = min(inner, outer);
+              crater += center;
+              crater = max(-N2(randInndex+50.)/5., crater);
+              result += crater * creterHeight;
+            }
+          } 
+        }
+        return result;
+      }
 
       void main() {
         float height, moisture;
 
-        vec2 spherizedCoord = v_rpos + vec2(1.0, 1.0);
+        vec2 spherizedCoord = v_rpos;
         vec2 loopCoord = spherizedCoord * M_PI/2.0 + vec2(0.0, u_random);
         vec3 noizeCoord = vec3(cos(loopCoord.x), sin(loopCoord.x), loopCoord.y);
 
@@ -295,7 +341,9 @@
         }
 
         float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
-        gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain/2., 1);
+        gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain, 1);
+        gl_FragColor.x += craters();
+        gl_FragColor.x /= 2.;
       }
     </script>
 
@@ -330,11 +378,32 @@
       }
     </script>
 
+    <script id="fragment-shader-normalmap" type="notjs">
+      varying vec2 v_rpos;
+      uniform sampler2D u_image;
+      uniform float u_bumpy;
+      void main() {
+        vec2 coord = v_rpos/vec2(2, -2);
+        float s=0.001;
+        float tl = texture2D(u_image, coord+vec2(-s, -s)).x;
+        float l = texture2D(u_image, coord+vec2(-s, 0)).x;
+        float bl = texture2D(u_image, coord+vec2(-s, s)).x;
+        float b = texture2D(u_image, coord+vec2(0, s)).x;
+        float br = texture2D(u_image, coord+vec2(s, s)).x;
+        float r = texture2D(u_image, coord+vec2(s, 0)).x;
+        float tr = texture2D(u_image, coord+vec2(s, -s)).x;
+        float t = texture2D(u_image, coord+vec2(0, -s)).x;
+        vec3 bump = normalize(vec3(tr + 2. * r + br - tl - 2. * l - bl, bl + 2. * b + br - tl - 2. * t - tr, -1./u_bumpy));
+        gl_FragColor = vec4(-bump, 1);
+      }
+    </script>
+
     <script id="fragment-shader-planet" type="notjs">
       varying vec2 v_rpos;
       varying vec2 v_tpos;
 
       uniform sampler2D u_image;
+      uniform sampler2D u_bump;
       uniform int u_coloring;
       uniform vec3 u_groundcolor;
       uniform vec3 u_groundcolor2;
@@ -358,12 +427,12 @@
       vec3 color_sea(vec2 pos, vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
-        float climate = (u_climate.y + (u_climate.x-u_climate.y) * (1.-cos(pos.y)));
+        float climate = (u_climate.y + (u_climate.x-u_climate.y) * (1.-cos(pos.y))) + 0.1;
         float el = climate + pow(height, 3.0);
 
         vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
-        if (height < 0.5) {
+        if (height < 0.75) {
           vec3 sea = min(u_seacolor*max(height, 0.2)+tex.z/10., 1.0);
           if (light > 0.0 && u_seashine > 1.0){
             sea += pow(light, u_seashine);
@@ -425,8 +494,9 @@
             colour_value = color_lava(tex, light);            
           }
 
+          vec3 bump = texture2D(u_bump, spherizedCoordTex).xyz;
           light = dot(
-            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2))), 
+            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
             normalize(u_lightdirection) 
           );
 
@@ -653,6 +723,7 @@
     </script>
 
     <script id="fragment-shader-space-texture" type="notjs">
+      #define OVEREXPOSURE 0.9
       varying vec2 v_rpos;
 
       uniform vec2 u_scale;
@@ -668,11 +739,13 @@
         p.y = min(p.y-1., p.y);
         float l = length(p);
         float lr = l;
-        /*if (scale > 0.011){
+        #ifdef OVEREXPOSURE
+        if (scale > 0.011){
           lr = l * max(0.001, pow((abs(abs(p.x)-abs(p.y))), 0.9))*300.;
           scale *= N2(craterpos+1000.)+0.5;
           return vec2((lr < scale ? 1. - lr/scale : 0.)*2., l < scale*glow ? 1. - l/(scale*glow) : 0.);
-        }*/
+        }
+        #endif
         return vec2(lr < scale ? 1. - lr/scale : 0., l < scale*glow ? 1. - l/(scale*glow) : 0.);
       }
       vec2 stars() {
@@ -687,7 +760,9 @@
           if (bigstar > u_stars) {
             vec2 c = vec2(N2(vec2(i+u_random)), N2(vec2(i+u_random+100.)))*2.-1.;
             size = 10.;
-            if (bigstar > 0.99) size *= 2.;
+            #ifdef OVEREXPOSURE
+            if (bigstar > OVEREXPOSURE) size *= 2.;
+            #endif
             s += star(c, pow(N2(c), 2.)/length(u_scale)*size, 10.);
           }
         }
@@ -749,7 +824,6 @@
       uniform sampler2D u_image;
       void main() {
         gl_FragColor = texture2D(u_image, v_rpos);
-        //gl_FragColor.x=v_rpos.x;//pos.x;
       }
     </script>
 
@@ -1131,9 +1205,13 @@
               };
             }
             if (type === gl.SAMPLER_2D) {
-              return function(texture) {
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-              };
+              return function(bindPoint, unit) {
+                return function(texture) {
+                  gl.uniform1i(location, unit);
+                  gl.activeTexture(gl.TEXTURE0 + unit);
+                  gl.bindTexture(bindPoint, texture);
+                };
+              }(gl.TEXTURE_2D, textureUnit++);
             }
             throw ('unknown type: 0x' + type.toString(16)); // we should never get here.
           }
@@ -1502,7 +1580,6 @@
         }
       }
       class Planet extends CelestialBody {
-        //'8493731133639812', '1753168327268213'
         sets = [
           { // earth
             type: 0,
@@ -1513,7 +1590,7 @@
             groundcolor2: [1.41, 0.24, 0.33],
             seacolor: [0.0, {min:0.2, max: 0.4}, 1],
             moisturemap: [10, 0.6, 2.5, 1],
-            grain: [0.5, 0.1],
+            grain: [0.5, 0.2],
             clouds: [1, 1, 2.5, 0.9],
             wind: 1.2,
             cloudy: 0.4,
@@ -1524,9 +1601,11 @@
             albedo: {mean: 0.5, dev: 0.1, min: 0.1},
             glow: 3,
             atmosphere: 1,
+            craters: {mean: 0.0, dev: 0.1,},
+            bumpy: {mean: 1.5, dev: 0.5,},
           },
           { // jupiter
-            type: 5,
+            type: 2,
             coloring: 0,
             jpfactor: {
               mean: 10, dev: 1,
@@ -1558,7 +1637,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.25,}],
+            grain: [{mean: 0.7, dev: 0.3,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 4, dev: 1,},
               {mean: 0.6, dev: 0.2, max: 1.2},
@@ -1591,6 +1670,8 @@
               mean: 2.5, dev: 3, max: 5
             },
             atmosphere: 1,
+            craters: -1,
+            bumpy: 0,
           },
           { // lava
             type: {'set':[0,1,2]},
@@ -1618,7 +1699,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [0.5, 0.2],
+            grain: [0.5, 0.4],
             clouds: [3, 0.8, 2.5, 0.9],
             wind: 1.2,
             cloudy: 0.4,
@@ -1629,6 +1710,8 @@
             albedo: {mean: 0.5, dev: 0.1, min: 0.1},
             glow: 3,
             atmosphere: {'set':[0,0,1]},
+            craters: {mean: 0, dev: 0.5,},
+            bumpy: {mean: 1.5, dev: 0.5,},
           },
           {
             type: {
@@ -1667,7 +1750,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            grain: [{min: 0, max: 1,}, {min: 0, max: 0.25,}],
+            grain: [{min: 0, max: 1,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 3, dev: 1,},
               {mean: 0.9, dev: 0.2, max: 1.2},
@@ -1700,9 +1783,11 @@
               mean: 2.5, dev: 3, max: 5
             },
             atmosphere: {'set': [1,1,0]},
+            craters: {min: 0, max: 1,},
+            bumpy: {mean: 1.5, dev: 0.7,},
           },
         ];
-        weights = [0.5, 0.5, 0.25, 1];
+        weights = [0.5, 0.5, 0.1, 1];
         //weights = [0, 0., 1, 0];
         drawOrbit=true;
         constructor(parent, mass, radius, orbit) {
@@ -1784,6 +1869,8 @@
             window.renderer.useProgram('planet-lava-glow');
             this.params.image = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});
           }
+          window.renderer.useProgram('planet-normalmap');
+          this.params.bump = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});          
         }
       }
       class Sun extends CelestialBody {
@@ -2229,6 +2316,7 @@
 
           new Program(renderer, "planet-texture", "#vertex-shader-2d", "#fragment-shader-planet-texture");
           new Program(renderer, "planet-lava-glow", "#vertex-shader-space", "#fragment-shader-planet-lava-glow");
+          new Program(renderer, "planet-normalmap", "#vertex-shader-space", "#fragment-shader-normalmap");
           new Program(renderer, "planet", "#vertex-shader-2d", "#fragment-shader-planet");
 
           new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
