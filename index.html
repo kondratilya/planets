@@ -382,17 +382,29 @@
       varying vec2 v_rpos;
       uniform sampler2D u_image;
       uniform float u_bumpy;
+      uniform int u_coloring;
+      uniform float u_waterlevel;
+
+      float height(vec2 d) {
+        float h = texture2D(u_image, v_rpos/vec2(2, -2)+d).x;
+        if (u_coloring == 1 || u_coloring == 2) {
+          if (h<u_waterlevel)
+            return u_waterlevel;
+        }
+        return h;
+      }
+
       void main() {
         vec2 coord = v_rpos/vec2(2, -2);
         float s=0.001;
-        float tl = texture2D(u_image, coord+vec2(-s, -s)).x;
-        float l = texture2D(u_image, coord+vec2(-s, 0)).x;
-        float bl = texture2D(u_image, coord+vec2(-s, s)).x;
-        float b = texture2D(u_image, coord+vec2(0, s)).x;
-        float br = texture2D(u_image, coord+vec2(s, s)).x;
-        float r = texture2D(u_image, coord+vec2(s, 0)).x;
-        float tr = texture2D(u_image, coord+vec2(s, -s)).x;
-        float t = texture2D(u_image, coord+vec2(0, -s)).x;
+        float tl = height(vec2(-s, -s));
+        float l = height(vec2(-s, 0));
+        float bl = height(vec2(-s, s));
+        float b = height(vec2(0, s));
+        float br = height(vec2(s, s));
+        float r = height(vec2(s, 0));
+        float tr = height(vec2(s, -s));
+        float t = height(vec2(0, -s));
         vec3 bump = normalize(vec3(tr + 2. * r + br - tl - 2. * l - bl, bl + 2. * b + br - tl - 2. * t - tr, -1./u_bumpy));
         gl_FragColor = vec4(-bump, 1);
       }
@@ -433,12 +445,12 @@
 
         vec3 land = vec3(height+tex.z)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
 
-        if (height < u_waterlevel) {
+        if (height < u_waterlevel*1.5) {
           vec3 sea = min(u_seacolor*max(height, 0.2)+tex.z/10., 1.0);
           if (light > 0.0 && u_seashine > 1.0){
             sea += pow(light, u_seashine);
           }
-          land = mix(sea, land, smoothstep(0.5-moisture/10., 0.5, height));
+          land = mix(sea, land, smoothstep(0.5-moisture/10., u_waterlevel, height));
         } 
         if(el > 0.9) {
           vec3 snow = vec3(height/1.5+tex.z+1.);
@@ -450,14 +462,12 @@
       vec3 color_lava(vec4 tex, float light) {
         float height = tex.x;
         float moisture = tex.y;
-        float waterlevel = u_waterlevel;
-
         vec3 land = vec3(height)*u_groundcolor + vec3(1.0-moisture)*u_groundcolor2;
-
         vec3 sea;
-        if (height < waterlevel) {
+
+        if (height < u_waterlevel) {
           sea = min(u_seacolor*max(0.-height, 0.2)*2.5, 1.0) / max(u_lightambient, light)*5.;
-          land = mix(sea, land, smoothstep(waterlevel-0.1, waterlevel, height));
+          land = mix(sea, land, smoothstep(u_waterlevel-0.1, u_waterlevel, height));
         } 
         land += u_seacolor * tex.z / max(u_lightambient, light)*5.;
         return land;
@@ -482,8 +492,9 @@
           vec2 spherizedCoordTex = spherized/vec2(4,2)-vec2(-u_rotation/4.0,-0.5);
           vec4 tex = texture2D(u_image, spherizedCoordTex);
 
+          vec3 bump = texture2D(u_bump, spherizedCoordTex).xyz;
           light = dot(
-            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2))), 
+            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
             normalize(u_lightdirection) 
           );
 
@@ -494,12 +505,6 @@
           } else {
             colour_value = color_lava(tex, light);            
           }
-
-          vec3 bump = texture2D(u_bump, spherizedCoordTex).xyz;
-          light = dot(
-            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
-            normalize(u_lightdirection) 
-          );
 
           vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
@@ -1649,7 +1654,7 @@
             groundcolor2: [1.41, 0.24, 0.33],
             seacolor: [0.0, {min:0.2, max: 0.4}, 1],
             moisturemap: [10, 0.6, 2.5, 1],
-            waterlevel: 0.75,
+            waterlevel: 0.5,
             grain: [0.5, 0.2],
             clouds: [1, 1, 2.5, {mean: 0.9, dev: 0.5,}],
             wind: 1.2,
@@ -1662,7 +1667,7 @@
             glow: 3,
             atmosphere: 1,
             craters: {mean: 0.0, dev: 0.1,},
-            bumpy: {mean: 1.5, dev: 0.5,},
+            bumpy: {mean: 2, dev: 0.5,},
           },
           { // jupiter
             type: 2,
@@ -1772,7 +1777,7 @@
             glow: 3,
             atmosphere: {'set':[0,0,1]},
             craters: {mean: 0, dev: 0.5,},
-            bumpy: {mean: 1.5, dev: 0.5,},
+            bumpy: {mean: 2, dev: 0.5,},
           },
           {
             type: {
@@ -1811,7 +1816,7 @@
               {mean: 2.5, dev: 0.2,},
               {value: 1,},
             ],
-            waterlevel: {mean: 0.75, dev: 0.5,},
+            waterlevel: {mean: 0.5, dev: 0.5,},
             grain: [{min: 0, max: 1,}, {min: 0, max: 0.5,}],
             clouds: [
               {mean: 3, dev: 1,},
@@ -1846,7 +1851,7 @@
             },
             atmosphere: {'set': [1,1,0]},
             craters: {min: 0, max: 1,},
-            bumpy: {mean: 1.5, dev: 0.7,},
+            bumpy: {mean: 2, dev: 1,},
           },
         ];
         weights = [0.5, 0.5, 0.1, 1];
@@ -2660,223 +2665,3 @@
       };
     </script>
   </head>
-  <body style="margin: 0px; overflow: hidden">
-    <canvas id="canvas" width="500" height="500" style="background: #000; margin: 0px; overflow: hidden; touch-action: none;"></canvas>
-  </body>
-  <script>
-    const canvas = document.getElementById('canvas');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    mr = new MovingRect(canvas);
-    mr.draw();
-    window.hideOrbits = false;
-
-    let favicon = document.createElement('canvas');
-    favicon.width = favicon.height = 16;
-    let faviconctx = favicon.getContext('2d');
-    let gradient = 
-      faviconctx.createRadialGradient(8, 8, 10, 10, 14, 9);
-    gradient.addColorStop(0.0, '#f00');
-    gradient.addColorStop(0.4, '#030');
-    gradient.addColorStop(1, '#abc');
-    faviconctx.fillStyle = gradient; 
-    faviconctx.beginPath();
-    faviconctx.arc(favicon.width/2, favicon.height/2, favicon.width/2, 0, 2 * Math.PI);
-    faviconctx.fill();
-
-    let link = document.createElement('link');
-    link.type = 'image/x-icon';
-    link.rel = 'shortcut icon';
-    link.href = favicon.toDataURL("image/x-icon");
-    document.getElementsByTagName('head')[0].appendChild(link);
-
-    document.addEventListener('keydown', function(e) {
-      if (e.repeat) { return }
-      window.keys = window.keys || {};
-      window.keys[e.code] = true;
-      switch (e.code) {  
-        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
-        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
-        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
-        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.manNewPos=false; break;
-        case 'NumpadAdd': case 'Equal': window.scale = window.hideMan ? 0.6 : 0.4; break;
-        case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
-      }
-      // console.log(e.code);
-    });
-
-    document.addEventListener('keyup', function(e) {
-      window.keys = window.keys || {};
-      window.keys[e.code] = false;
-      switch (e.code) {
-        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = false; break;
-        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
-        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
-        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
-        case 'Space': mr.man.fireRocket(mr); break;
-        case 'NumpadAdd': case 'Equal': 
-        case 'NumpadSubtract': case 'Minus': window.scale = false; break;
-        case 'KeyO': window.hideOrbits = !window.hideOrbits; break;
-        case 'KeyP': window.paused = !window.paused; break;
-        case 'Digit1': 
-          if (mr.man.onPlanet) {
-            mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
-            mr.man.onPlanet.generateTex();
-          }
-        break;
-        case 'Digit2': 
-          if (mr.man.onPlanet) {
-            mr.man.onPlanet.roll();
-            mr.man.onPlanet.generateTex();
-          }
-        break;
-        case 'Digit3': 
-          if (mr.man.onPlanet) {
-            if (mr.man.onPlanet.rings) 
-              delete mr.man.onPlanet.rings;
-            else 
-              mr.man.onPlanet.generateRings();
-          }
-        break;
-        case 'Digit4': 
-          let satelites = mr.sun.satelites;
-          if (mr.random.choice([0, 1]))
-            mr.sun = new Sun(mr.random, 1000*10, 1000);
-          else
-            mr.sun = new BlackHole(mr.random, 1000*10, 1000);
-          for (let i=0; i<satelites.length;++i)
-            satelites[i].parent = mr.sun;
-          mr.sun.satelites = satelites;
-        break;
-        case 'Digit5': 
-          mr.setRandom();
-          mr.genarateStars();
-          mr.genaratePlanets();
-          mr.man.onPlanet=false;
-        break;
-        case 'Digit6': 
-          mr.genarateStars();
-          mr.man.onPlanet=false;
-        break;
-        case 'KeyZ': mr.man.dp.set(0,0); break;
-        case 'KeyG': window.testGalaxy = !window.testGalaxy; break;
-        case 'KeyH': window.hideMan = !window.hideMan; mr.man.onPlanet=false; break;
-      }
-
-    });
-    window.addEventListener("resize", (event) => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      window.renderer.gl.canvas.width = canvas.width;
-      window.renderer.gl.canvas.height = canvas.height;
-      window.renderer.gl.viewport(0, 0, window.renderer.gl.canvas.width, window.renderer.gl.canvas.height);
-      for (program in window.renderer.programs) {
-        let p = window.renderer.programs[program];
-        p.use();
-        window.renderer.gl.uniform2f(window.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
-      }
-      mr.width = canvas.getBoundingClientRect().width;
-      mr.height = canvas.getBoundingClientRect().height;      
-    });
-
-    function setDirectionPoint(event) {
-      event.preventDefault();
-      const rect = event.target.getBoundingClientRect();
-      const x = event.clientX - rect.left; 
-      const y = event.clientY - rect.top;  
-
-      let pos = new Point(0, 0).sub(mr.trans.pos);
-      let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
-
-      let xx = (x-mr.trans.pos.x)/mr.trans.scale;
-      let yy = (y-mr.trans.pos.y)/mr.trans.scale;
-
-      if (this.onPlanet) {
-        mr.man.onPlanet = false;
-        mr.man.takingOff = this.onPlanet;
-      }
-
-      mr.manNewPos = {pos:new Point(xx, yy)};
-      mr.sun.eachSatelite(function(obj) {
-        if (!(this instanceof Planet)) return;
-        let dp = Point.fromPos(mr.manNewPos.pos).sub(this.pos);
-          if (dp.len() < this.radius) {
-            mr.manNewPos = this;
-            //console.log(mr.manNewPos);
-            return true;
-          }
-      }, this);
-    }
-
-    document.addEventListener("click", setDirectionPoint);
-    document.addEventListener("tap", setDirectionPoint);
-
-    const pinchZoom = (imageElement) => {
-      let imageElementScale = 1, o;
-
-      let start = {};
-
-      // Calculate distance between two fingers
-      const distance = (event) => {
-        return Math.hypot(event.touches[0].pageX - event.touches[1].pageX, event.touches[0].pageY - event.touches[1].pageY);
-      };
-
-      imageElement.addEventListener('touchstart', (event) => {
-        //console.log('touchstart', event.touches.length);
-        if (event.touches.length === 2) {
-          event.preventDefault(); // Prevent page scroll
-
-          // Calculate where the fingers have started on the X and Y axis
-          start.x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
-          start.y = (event.touches[0].pageY + event.touches[1].pageY) / 2;
-          start.distance = distance(event);
-          start.scale = mr.trans.scale;
-        }
-      });
-
-      imageElement.addEventListener('touchmove', (event) => {
-        if (event.touches.length === 2) {
-          event.preventDefault(); // Prevent page scroll
-
-          // Safari provides event.scale as two fingers move on the screen
-          // For other browsers just calculate the scale manually
-          let scale;
-          if (event.scale) {
-            scale = event.scale;
-          } else {
-            const deltaDistance = distance(event);
-            scale = deltaDistance / start.distance;
-          }
-          imageElementScale = Math.min(Math.max(0.1, scale), 5);
-
-          // Calculate how much the fingers have moved on the X and Y axis
-          //const deltaX = (((event.touches[0].pageX + event.touches[1].pageX) / 2) - start.x) * 2; // x2 for accelarated movement
-          //const deltaY = (((event.touches[0].pageY + event.touches[1].pageY) / 2) - start.y) * 2; // x2 for accelarated movement
-
-          window.scale = start.scale * imageElementScale;
-          window.scale = Math.min(Math.max(0.05, window.scale), 1);
-          window.scaleSpeed = 20;
-          /*const x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
-          const y = (event.touches[0].pageX + event.touches[1].pageX) / 2;
-
-          let pos = new Point(0, 0).sub(mr.trans.pos);
-          let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
-
-          let xx = (x-mr.trans.pos.x)/mr.trans.scale;
-          let yy = (y-mr.trans.pos.y)/mr.trans.scale;
-
-          window.pos = new Point(xx, yy);*/
-
-        }
-      });
-
-      imageElement.addEventListener('touchend', (event) => {
-        //console.log('touchend');
-        window.scale = false;
-        window.scaleSpeed = false;
-        //window.pos = false;
-      });
-    }
-    pinchZoom(canvas);
-  </script>
-</html>
