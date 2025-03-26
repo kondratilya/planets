@@ -415,15 +415,6 @@
 
       uniform float u_random;
 
-      float v(float length, float angle, float x, float f) {
-        float u_arms = 1.;
-        angle += pow(length, 1.) * f ;//- M_PI/4.;
-        float a = (sin((angle)*u_arms)+1.)/4.;
-        float mask = smoothstep(1.,0.2,length);
-        float r1 = 1.;//(noize_harm(vec3(v_dpos, x), noize*vec4(1,1,1,a/10.+1.))+1.)/2.;
-        return max(0., (r1/2.+a)*mask);
-      }
-
       void main() {
         vec2 loopCoord = v_rpos * M_PI/2.0 + vec2(0.0, u_random*2.+10.);
         vec3 noizeCoord = vec3(cos(loopCoord.x), sin(loopCoord.x), loopCoord.y);
