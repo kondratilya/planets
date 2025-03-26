@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8"/>
@@ -2665,3 +2665,223 @@
       };
     </script>
   </head>
+  <body style="margin: 0px; overflow: hidden">
+     <canvas id="canvas" width="500" height="500" style="background: #000; margin: 0px; overflow: hidden; touch-action: none;"></canvas>
+   </body>
+   <script>
+     const canvas = document.getElementById('canvas');
+     canvas.width = window.innerWidth;
+     canvas.height = window.innerHeight;
+     mr = new MovingRect(canvas);
+     mr.draw();
+     window.hideOrbits = false;
+ 
+     let favicon = document.createElement('canvas');
+     favicon.width = favicon.height = 16;
+     let faviconctx = favicon.getContext('2d');
+     let gradient = 
+       faviconctx.createRadialGradient(8, 8, 10, 10, 14, 9);
+     gradient.addColorStop(0.0, '#f00');
+     gradient.addColorStop(0.4, '#030');
+     gradient.addColorStop(1, '#abc');
+     faviconctx.fillStyle = gradient; 
+     faviconctx.beginPath();
+     faviconctx.arc(favicon.width/2, favicon.height/2, favicon.width/2, 0, 2 * Math.PI);
+     faviconctx.fill();
+ 
+     let link = document.createElement('link');
+     link.type = 'image/x-icon';
+     link.rel = 'shortcut icon';
+     link.href = favicon.toDataURL("image/x-icon");
+     document.getElementsByTagName('head')[0].appendChild(link);
+ 
+     document.addEventListener('keydown', function(e) {
+       if (e.repeat) { return }
+       window.keys = window.keys || {};
+       window.keys[e.code] = true;
+       switch (e.code) {  
+         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
+         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
+         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
+         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.manNewPos=false; break;
+         case 'NumpadAdd': case 'Equal': window.scale = window.hideMan ? 0.6 : 0.4; break;
+         case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
+       }
+       // console.log(e.code);
+     });
+ 
+     document.addEventListener('keyup', function(e) {
+       window.keys = window.keys || {};
+       window.keys[e.code] = false;
+       switch (e.code) {
+         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = false; break;
+         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
+         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
+         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
+         case 'Space': mr.man.fireRocket(mr); break;
+         case 'NumpadAdd': case 'Equal': 
+         case 'NumpadSubtract': case 'Minus': window.scale = false; break;
+         case 'KeyO': window.hideOrbits = !window.hideOrbits; break;
+         case 'KeyP': window.paused = !window.paused; break;
+         case 'Digit1': 
+           if (mr.man.onPlanet) {
+             mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
+             mr.man.onPlanet.generateTex();
+           }
+         break;
+         case 'Digit2': 
+           if (mr.man.onPlanet) {
+             mr.man.onPlanet.roll();
+             mr.man.onPlanet.generateTex();
+           }
+         break;
+         case 'Digit3': 
+           if (mr.man.onPlanet) {
+             if (mr.man.onPlanet.rings) 
+               delete mr.man.onPlanet.rings;
+             else 
+               mr.man.onPlanet.generateRings();
+           }
+         break;
+         case 'Digit4': 
+           let satelites = mr.sun.satelites;
+           if (mr.random.choice([0, 1]))
+             mr.sun = new Sun(mr.random, 1000*10, 1000);
+           else
+             mr.sun = new BlackHole(mr.random, 1000*10, 1000);
+           for (let i=0; i<satelites.length;++i)
+             satelites[i].parent = mr.sun;
+           mr.sun.satelites = satelites;
+         break;
+         case 'Digit5': 
+           mr.setRandom();
+           mr.genarateStars();
+           mr.genaratePlanets();
+           mr.man.onPlanet=false;
+         break;
+         case 'Digit6': 
+           mr.genarateStars();
+           mr.man.onPlanet=false;
+         break;
+         case 'KeyZ': mr.man.dp.set(0,0); break;
+         case 'KeyG': window.testGalaxy = !window.testGalaxy; break;
+         case 'KeyH': window.hideMan = !window.hideMan; mr.man.onPlanet=false; break;
+       }
+ 
+     });
+     window.addEventListener("resize", (event) => {
+       canvas.width = window.innerWidth;
+       canvas.height = window.innerHeight;
+       window.renderer.gl.canvas.width = canvas.width;
+       window.renderer.gl.canvas.height = canvas.height;
+       window.renderer.gl.viewport(0, 0, window.renderer.gl.canvas.width, window.renderer.gl.canvas.height);
+       for (program in window.renderer.programs) {
+         let p = window.renderer.programs[program];
+         p.use();
+         window.renderer.gl.uniform2f(window.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
+       }
+       mr.width = canvas.getBoundingClientRect().width;
+       mr.height = canvas.getBoundingClientRect().height;      
+     });
+ 
+     function setDirectionPoint(event) {
+       event.preventDefault();
+       const rect = event.target.getBoundingClientRect();
+       const x = event.clientX - rect.left; 
+       const y = event.clientY - rect.top;  
+ 
+       let pos = new Point(0, 0).sub(mr.trans.pos);
+       let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
+ 
+       let xx = (x-mr.trans.pos.x)/mr.trans.scale;
+       let yy = (y-mr.trans.pos.y)/mr.trans.scale;
+ 
+       if (this.onPlanet) {
+         mr.man.onPlanet = false;
+         mr.man.takingOff = this.onPlanet;
+       }
+ 
+       mr.manNewPos = {pos:new Point(xx, yy)};
+       mr.sun.eachSatelite(function(obj) {
+         if (!(this instanceof Planet)) return;
+         let dp = Point.fromPos(mr.manNewPos.pos).sub(this.pos);
+           if (dp.len() < this.radius) {
+             mr.manNewPos = this;
+             //console.log(mr.manNewPos);
+             return true;
+           }
+       }, this);
+     }
+ 
+     document.addEventListener("click", setDirectionPoint);
+     document.addEventListener("tap", setDirectionPoint);
+ 
+     const pinchZoom = (imageElement) => {
+       let imageElementScale = 1, o;
+ 
+       let start = {};
+ 
+       // Calculate distance between two fingers
+       const distance = (event) => {
+         return Math.hypot(event.touches[0].pageX - event.touches[1].pageX, event.touches[0].pageY - event.touches[1].pageY);
+       };
+ 
+       imageElement.addEventListener('touchstart', (event) => {
+         //console.log('touchstart', event.touches.length);
+         if (event.touches.length === 2) {
+           event.preventDefault(); // Prevent page scroll
+ 
+           // Calculate where the fingers have started on the X and Y axis
+           start.x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+           start.y = (event.touches[0].pageY + event.touches[1].pageY) / 2;
+           start.distance = distance(event);
+           start.scale = mr.trans.scale;
+         }
+       });
+ 
+       imageElement.addEventListener('touchmove', (event) => {
+         if (event.touches.length === 2) {
+           event.preventDefault(); // Prevent page scroll
+ 
+           // Safari provides event.scale as two fingers move on the screen
+           // For other browsers just calculate the scale manually
+           let scale;
+           if (event.scale) {
+             scale = event.scale;
+           } else {
+             const deltaDistance = distance(event);
+             scale = deltaDistance / start.distance;
+           }
+           imageElementScale = Math.min(Math.max(0.1, scale), 5);
+ 
+           // Calculate how much the fingers have moved on the X and Y axis
+           //const deltaX = (((event.touches[0].pageX + event.touches[1].pageX) / 2) - start.x) * 2; // x2 for accelarated movement
+           //const deltaY = (((event.touches[0].pageY + event.touches[1].pageY) / 2) - start.y) * 2; // x2 for accelarated movement
+ 
+           window.scale = start.scale * imageElementScale;
+           window.scale = Math.min(Math.max(0.05, window.scale), 1);
+           window.scaleSpeed = 20;
+           /*const x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+           const y = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+ 
+           let pos = new Point(0, 0).sub(mr.trans.pos);
+           let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
+ 
+           let xx = (x-mr.trans.pos.x)/mr.trans.scale;
+           let yy = (y-mr.trans.pos.y)/mr.trans.scale;
+ 
+           window.pos = new Point(xx, yy);*/
+ 
+         }
+       });
+ 
+       imageElement.addEventListener('touchend', (event) => {
+         //console.log('touchend');
+         window.scale = false;
+         window.scaleSpeed = false;
+         //window.pos = false;
+       });
+     }
+     pinchZoom(canvas);
+   </script>
+ </html>
