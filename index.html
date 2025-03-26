@@ -1946,6 +1946,8 @@
           if (this.params.atmosphere) {
             window.renderer.useProgram('planet-cloudmap');
             this.params.cloudmap = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+          }else {
+            this.params.cloudmap = null;
           }
           window.renderer.setPositions();
           if (this.params.coloring == 2) {
@@ -1955,8 +1957,9 @@
           if (this.params.bumpy > 0) {
             window.renderer.useProgram('planet-normalmap');
             this.params.bump = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+          } else {
+            this.params.bump = null;
           }
-
         }
       }
       class Sun extends CelestialBody {
