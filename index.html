@@ -898,9 +898,7 @@
 
     <script id="fragment-shader-black-hole-accretion" type="notjs">
       varying vec2 v_rpos, v_dpos;
-      uniform sampler2D u_image;
       uniform float u_frame;
-      uniform float u_roll;
       uniform float u_random;
       uniform float u_radius;
       uniform float u_bright;
@@ -975,48 +973,34 @@
       uniform float u_random;
       uniform float u_spin;
       uniform float u_arms;
-
-      uniform sampler2D u_image;
-
-
+      //uniform sampler2D u_image;
       vec4 noize = vec4(2,0.8,2.5,1);
 
       float v(float length, float angle, float x, float f) {
         angle += pow(length, .5) * f ;//- M_PI/4.;
-
         float a = (sin((angle)*u_arms)+1.)/4.;
-
         float mask = smoothstep(1.,0.2,length);
         float r1 = (noize_harm(vec3(v_dpos, x), noize*vec4(1,1,1,a/10.+1.))+1.)/2.;
-
-        return (r1/2.+a)*mask;
-
+        return max(0., (r1/2.+a)*mask);
       }
 
       void main() {
         float d = length(v_dpos);
-        float a = atan(v_dpos.y, v_dpos.x);
+        float a = atan(v_dpos.y, v_dpos.x) + u_roll;
 
         if (d < 1.) {
           gl_FragColor += vec4(vec3(1), pow(v(d, a+M_PI/2., 0., u_spin), 5.));
           gl_FragColor += vec4(vec3(1), v(d, a+M_PI/2., 100., u_spin*0.6))/2.;
-          //gl_FragColor -= vec4(vec3(v(d, a+M_PI/2., 100.)), 0);
-          //gl_FragColor = vec4(1);
         }
 
-        vec2 bulge = v_rpos * vec2(0.2,0.5);
-        gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(v_rpos*vec2(0.5,1.0)), 0., 1.), 2.)*500.);
+        vec2 bulge = v_rpos * vec2(0.5,1.0);
+        gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(bulge), 0., 1.), 2.)*500.);
         
-
-       // vec4 t = texture2D(u_image, v_rpos/2.);
-        //gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(bulge), 0., 1.), 2.)*200.);
         float w = gl_FragColor.a;
         float y = N2(v_dpos+vec2(u_random, 0)) < w*2. ? N2(v_dpos+vec2(u_random*2.+10., 0))+w/2.:0.;
 
-        //gl_FragColor = vec4(t.rgb+y/2.+w, 1);
-        //gl_FragColor += vec4(vec3(1), v(d, a+M_PI/2., 100., u_spin*0.6))/2.;
         gl_FragColor = vec4(vec3(1), y/3.+w);
-
+        //gl_FragColor = texture2D(u_image, v_rpos/2.)+vec4(vec3(1)*y/3.+w, 0);
       }
     </script>
 
@@ -1362,7 +1346,7 @@
           this.program.setParams(Object.assign({position: [x, y], scale: [r, r]}, params));
           this.gl.drawArrays(this.gl.LINE_LOOP, 0, this.count);
         }
-        texture(params, resolution, positions, texParams) {
+        texture(params, resolution, texParams) {
           const gl = this.gl;
           const targetTexture = gl.createTexture();
           gl.bindTexture(gl.TEXTURE_2D, targetTexture);
@@ -1375,7 +1359,6 @@
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texParams['WRAP'] || gl.REPEAT);
           gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
           gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, 0);
-          this.setPositions(positions);
           let box = {};
           for (let i=0; i<this.positions.length; ++i){
             if (!(i % 2)) {
@@ -1927,17 +1910,19 @@
             transparency: this.random.range(0.1, 0.2),
           };
           window.renderer.useProgram('rings-texture');
-          this.rings.image = window.renderer.texture(this.rings, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
+          this.rings.image = window.renderer.texture(this.rings, 1024, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
-          this.params.image = window.renderer.texture(this.params, 512, [0,0, 4,0, 0,2, 0,2, 4,0, 4,2], {MIN_FILTER: window.renderer.gl.LINEAR});
+          window.renderer.setPositions([0,0, 4,0, 0,2, 0,2, 4,0, 4,2]);
+          this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+          window.renderer.setPositions();
           if (this.params.coloring == 2) {
             window.renderer.useProgram('planet-lava-glow');
-            this.params.image = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+            this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
           }
           window.renderer.useProgram('planet-normalmap');
-          this.params.bump = window.renderer.texture(this.params, 512, false, {MIN_FILTER: window.renderer.gl.LINEAR});          
+          this.params.bump = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});          
         }
       }
       class Sun extends CelestialBody {
@@ -2086,7 +2071,7 @@
         }
         generateTex() {
           window.renderer.useProgram('asteroid-texture');
-          this.params.image = window.renderer.texture(this.params, 128, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+          this.params.image = window.renderer.texture(this.params, 128, {MIN_FILTER: window.renderer.gl.LINEAR});
         }
         gravitateOne(obj) {
           return;
@@ -2492,9 +2477,7 @@
           stars: this.random.range(0.1,0.99),
           smallstars: this.random.range(0.98,0.999),
         };
-        this.stars = window.renderer.texture(params, this.starsSize, false, {MIN_FILTER: window.renderer.gl.LINEAR});
-        // window.renderer.useProgram('distort');
-        // this.stars = window.renderer.texture({image:this.stars}, 1024, false, {MIN_FILTER: window.renderer.gl.LINEAR});
+        this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
       }
 
       MovingRect.prototype.drawStars = function() {
