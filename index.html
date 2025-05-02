@@ -348,7 +348,7 @@
         float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
         gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain, 1);
         gl_FragColor.x += craters();
-        // gl_FragColor.x /= 2.;
+        gl_FragColor.x /= 1.5;
       }
     </script>
 
