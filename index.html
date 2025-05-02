@@ -221,6 +221,11 @@
       float sech(float x) {
         return 2. / (pow(2.71828, x) + pow(2.71828, -x));
       }
+
+      vec4 colormix(vec4 c0, vec4 c1) {
+        float a01 = (1. - c0.a)*c1.a + c0.a;
+        return vec4( ((1. - c0.a)*c1.a*c1.rgb + c0.a*c0.rgb) / a01, a01);
+      }
     </script>
 
     <script id="vertex-shader-2d" type="notjs">
@@ -687,7 +692,6 @@
         if (w<1.) {
           vec4 noize = vec4(6.*u_thrust, 0.8*u_thrust, 2.5, 1.);
           float color = noize_harm(vec3(v_rpos*vec2(w, 1)+vec2(0, -u_frame*0.4), 0), noize)*(2.-u_thrust);
-          //color = 1.;
           gl_FragColor = vec4(vec3(u_color.r*color, u_color.g*color, u_color.b*(1.-y)), (1.-w)*color);
         } else {
           discard;
@@ -828,8 +832,8 @@
           )*d+vec3(s.x*d), 1
         );
 
-        // if (mod(v_rpos.x, 0.5)<0.01)gl_FragColor = vec4(0,0,1,1);
-        // if (mod(v_rpos.y, 0.5)<0.01)gl_FragColor = vec4(0,1,0,1);
+        // if (mod(v_rpos.x+0.05, 0.5)<0.01)gl_FragColor = vec4(0,0,1,1);
+        // if (mod(v_rpos.y+0.05, 0.5)<0.01)gl_FragColor = vec4(0,1,0,1);
         // gl_FragColor.x += v_rpos.x;
         // gl_FragColor.y += v_rpos.y;
       }
@@ -986,39 +990,55 @@
     </script>
 
     <script id="fragment-shader-galaxy" type="notjs">
+      #define e  2.71828182845904523
       varying vec2 v_rpos, v_dpos;
-      uniform float u_roll;
       uniform float u_random;
       uniform float u_spin;
       uniform float u_arms;
-      //uniform sampler2D u_image;
-      vec4 noize = vec4(2,0.8,2.5,1);
+      uniform float u_opacity;
+      uniform float u_frame;
+      uniform float u_perspective;
+      uniform vec3 u_armscolor;
+      uniform vec3 u_bulgecolor;
+      uniform vec3 u_dustcolor;
+      vec4 noize = vec4(.2,0.8,2.5,1);
+      vec2 dposp;
 
-      float v(float length, float angle, float x, float f) {
-        angle += pow(length, .5) * f ;//- M_PI/4.;
+      float spiral(float length, float angle, float x, float f) {
+        angle += pow(length, .5) * f;
         float a = (sin((angle)*u_arms)+1.)/4.;
-        float mask = smoothstep(1.,0.2,length);
-        float r1 = (noize_harm(vec3(v_dpos, x), noize*vec4(1,1,1,a/10.+1.))+1.)/2.;
-        return max(0., (r1/2.+a)*mask);
+        float mask = smoothstep(1.,0.2,length) * smoothstep(0.0, 0.2, length);;
+        float r1 = (noize_harm(vec3(dposp, x), noize)+1.)/2.;
+        float elliptical = pow(1.-(length+0.2), 2.);
+        return max(0., (r1*a+elliptical)*mask);
       }
 
       void main() {
-        float d = length(v_dpos);
-        float a = atan(v_dpos.y, v_dpos.x) + u_roll;
+        dposp = v_dpos * ((v_rpos.y/2.+.5)*u_perspective+1.);
+        float d = length(dposp);
+        float a = atan(dposp.y, dposp.x);
+        float arms, bulge;
 
         if (d < 1.) {
-          gl_FragColor += vec4(vec3(1), pow(v(d, a+M_PI/2., 0., u_spin), 5.));
-          gl_FragColor += vec4(vec3(1), v(d, a+M_PI/2., 100., u_spin*0.6))/2.;
+          arms += pow(spiral(d, a+M_PI/2., u_random+0., u_spin), 5.);
+          arms += spiral(d, a+M_PI/2., u_random+100., u_spin*0.6)/2.;
+          arms += spiral(d, a+M_PI/5., u_random+200., u_spin*0.8)/4.;
         }
 
-        vec2 bulge = v_rpos * vec2(0.5,1.0);
-        gl_FragColor += vec4(vec3(1),pow(clamp(0.1-length(bulge), 0., 1.), 2.)*500.);
+        vec2 bulgev = v_rpos * vec2(0.5,1.0);
+        bulge = pow(clamp(0.1-length(bulgev), 0., 1.), 1.)*10.;
         
-        float w = gl_FragColor.a;
-        float y = N2(v_dpos+vec2(u_random, 0)) < w*2. ? N2(v_dpos+vec2(u_random*2.+10., 0))+w/2.:0.;
+        float bright = arms + bulge;
+        float stars = N2(dposp+vec2(u_random, 0)) < bright*2. ? N2(dposp+vec2(u_random*2.+10., 0))+bright/2.:0.;
+        float dust = pow(spiral(d, a+M_PI/5., u_random+300., u_spin*0.8),2.)/1.5;
 
-        gl_FragColor = vec4(vec3(1), y/3.+w);
-        //gl_FragColor = texture2D(u_image, v_rpos/2.)+vec4(vec3(1)*y/3.+w, 0);
+        gl_FragColor = vec4(vec3(1.-d)+u_armscolor, clamp(arms, 0., 1.6));
+        gl_FragColor = colormix(gl_FragColor, vec4(vec3(1.-d)+u_bulgecolor, clamp(bulge, 0., 1.6)));
+        gl_FragColor += clamp(stars, 0., 1.)/5.;
+        gl_FragColor = clamp(gl_FragColor, 0., 1.);
+        gl_FragColor -= vec4((1.-u_dustcolor)*dust, 0);
+        
+        gl_FragColor.a *= u_opacity;
       }
     </script>
 
@@ -1399,6 +1419,17 @@
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           return targetTexture;
         }
+        renderTo(texture, resolution, params, x, y, s, s1, a) {
+          const gl = this.gl;
+          if (typeof(resolution)!='object') resolution=[resolution, resolution];
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+          gl.viewport(0, 0, resolution[0], resolution[1]);
+          gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), resolution[0], resolution[1]);
+          this.render(params, x, y, s, s1, a);
+          gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
       }
 
       class Point {
@@ -1548,20 +1579,6 @@
           let dist = Math.max((this.pos.dist(obj.pos)), this.radius, 100);
           let f = (this.mass / dist**2) * G;
           obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
-
-          // let objScaledPos = obj.pos.scaled(mr.trans);
-          // let force = Point.fromPos(obj.pos).sub(this.pos).norm().mul(f).mul(-10000);
-          // let forceScaledPos = Point.fromPos(obj.pos).add(force).scaled(mr.trans);
-          // mr.ctx.strokeStyle = '#fff';
-          // mr.ctx.lineWidth=2;
-          // mr.ctx.setLineDash([]);
-          // mr.ctx.beginPath();
-          // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
-          // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
-          // mr.ctx.stroke();
-          // mr.ctx.beginPath();
-          // mr.ctx.arc(objScaledPos.x, objScaledPos.y, obj.r*mr.trans.scale, 0, 2 * Math.PI);
-          // mr.ctx.stroke();
         }
         gravitate(obj) {
           for (let i=0; i<this.satelites.length; ++i)
@@ -2377,17 +2394,8 @@
         if (canvas.getContext) {
           this.width = this.canvas.getBoundingClientRect().width;
           this.height = this.canvas.getBoundingClientRect().height;
-          // this.ctx = this.canvas.getContext('2d');
-          // this.ctx.lineWidth = 3;
-          // this.ctx.fillStyle = '#000000';
-          // this.ctx.fillRect(0, 0, this.width, this.height);
-
-          // this.planetsCanvas = document.createElement('canvas');
-          // this.planetsCanvas.width = this.width;
-          // this.planetsCanvas.height = this.height;
 
           const renderer = new Renderer(this.canvas);
-
 
           new Program(renderer, "orbit", "#vertex-shader-orbit", "#fragment-shader-orbit");
           new Program(renderer, "fill", "#vertex-shader-2d", "#fragment-shader-fill");
@@ -2440,10 +2448,7 @@
             startplanets.push(this.sun.satelites[i]);
           }
 
-          window.startplanets = startplanets;
-          //this.man = new Man(startplanets[Math.floor(Math.random()*startplanets.length)].pos);
           this.man = new Man(this.random.choice(startplanets).pos);
-          //this.man = new Man(this.sun.pos);
           this.man.mode = 'rocket';
 
 
@@ -2507,6 +2512,28 @@
           smallstars: this.random.range(0.98,0.999),
         };
         this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
+        window.renderer.useProgram('galaxy');
+        for (let i=0; i<this.random.gauss(1, 5); ++i) {
+          params = {
+            roll:this.random.range(0.1,Math.PI/2),
+            spin:Math.PI*this.random.range(3, 4),
+            arms:Math.round(this.random.range(1, 4)),
+            opacity:this.random.range(0.5,1),
+            armscolor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[.1, 0.2, 1.]
+            bulgeColor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[1., 1., 0.5],
+            dustcolor:[0.4, 0, 0],
+            perspective:0.4,
+            random:this.random.rand()*1234,
+          };
+          x = this.random.range(this.starsSize);
+          y = this.random.range(this.starsSize);
+          a = this.random.range(Math.PI);
+          s = this.random.range(0.5);
+          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
+          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize+this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
+          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize+this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
+          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize+this.starsSize/2-x, this.starsSize+this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
+        }
       }
 
       MovingRect.prototype.drawStars = function() {
@@ -2531,7 +2558,7 @@
 
         if (window.testGalaxy) {
           window.renderer.useProgram('galaxy');
-          window.renderer.render({roll:this.frame/100, spin:25, arms:2}, 266, 266, 266, 266, .5);
+          window.renderer.render({roll:this.frame/100, spin:25, arms:1,frame:this.frame/100, opacity:1}, 266, 266, 266, 266, .5);
         }
       }
 
@@ -2565,10 +2592,8 @@
         if(window.hideMan) return;
         // if (this.manNewPos) {
         //   window.renderer.useProgram('fill');
-        //   // renderer.setPositions(this.orbitPositions);
         //   let scaledPos = this.manNewPos.pos.scaled(this.trans);  
         //   window.renderer.render({color:[1,0,0]}, scaledPos.x, scaledPos.y, 10);
-        //   // renderer.setPositions();
         // }
 
         let scaledPos = this.man.pos.scaled(this.trans);
