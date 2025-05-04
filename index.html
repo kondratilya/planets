@@ -2515,7 +2515,7 @@
         };
         this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
         window.renderer.useProgram('galaxy');
-        for (let i=0; i<this.random.gauss(7, 5); ++i) {
+        for (let i=0; i<this.random.gauss(5, 5); ++i) {
           params = {
             roll:this.random.range(0.1,Math.PI/2),
             spin:Math.PI*this.random.range(3, 4),
