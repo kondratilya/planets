@@ -555,6 +555,25 @@
       }
     </script>
 
+    <script id="fragment-shader-asteroid-texture" type="notjs">
+      varying vec2 v_rpos;
+
+      uniform float u_random;
+      uniform float u_rough;
+      vec4 noize = vec4(2,u_rough,2.5,1);
+
+      void main() {
+        float r = noize_harm(vec3(v_rpos, u_random), noize);
+
+        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+        if (lengthSq2 < 0.5 + r/2.0) {
+          gl_FragColor = vec4(r, sqrt(2.0 - lengthSq2), 0, 1);
+        } else {
+          discard;
+        }
+      }
+    </script>
+    
     <script id="fragment-shader-asteroid" type="notjs">
       varying vec2 v_rpos;
 
