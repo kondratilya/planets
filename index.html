@@ -519,6 +519,12 @@
           vec4 tex = texture2D(u_image, spherizedCoordTex);
 
           vec3 bump = texture2D(u_bump, spherizedCoordTex).xyz;
+
+          if (u_atmosphere > 0) {
+            clouds_value = clouds(spherized, lengthSq2);
+            bump.xy *= (1.-clamp(clouds_value, 0., 1.));
+          }
+
           light = dot(
             normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
             normalize(u_lightdirection) 
@@ -537,35 +543,12 @@
           light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
           if (u_atmosphere > 0) {
-            clouds_value = clouds(spherized, lengthSq2);
             clouds_value += glow/5.*u_glow;
-
             float shadow_value = clouds(spherize(v_rpos+normalize(u_lightdirection).xy/50.), lengthSq2);
             light -= shadow_value/2. * max(0., 1.-clouds_value);
           }
 
           gl_FragColor = vec4((colour_value+clouds_value)/2. * max(light, u_lightambient) * u_lightcolor * u_albedo, smoothstep(1.,0.95,lengthSq2));
-
-          //gl_FragColor.r += texture2D(u_cloudmap, spherizedCoordTex).x*2.-1.;
-        } else {
-          discard;
-        }
-      }
-    </script>
-
-    <script id="fragment-shader-asteroid-texture" type="notjs">
-      varying vec2 v_rpos;
-
-      uniform float u_random;
-      uniform float u_rough;
-      vec4 noize = vec4(2,u_rough,2.5,1);
-
-      void main() {
-        float r = noize_harm(vec3(v_rpos, u_random), noize);
-
-        float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
-        if (lengthSq2 < 0.5 + r/2.0) {
-          gl_FragColor = vec4(r, sqrt(2.0 - lengthSq2), 0, 1);
         } else {
           discard;
         }
