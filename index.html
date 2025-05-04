@@ -2515,11 +2515,11 @@
         };
         this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
         window.renderer.useProgram('galaxy');
-        for (let i=0; i<this.random.gauss(3, 5); ++i) {
+        for (let i=0; i<this.random.gauss(7, 5); ++i) {
           params = {
             roll:this.random.range(0.1,Math.PI/2),
             spin:Math.PI*this.random.range(3, 4),
-            arms:Math.round(this.random.range(1, 4)),
+            arms:Math.round(this.random.choice([0, 2, 2, 3, 4, 4])),
             opacity:this.random.range(0.5,1),
             armscolor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[.1, 0.2, 1.]
             bulgeColor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[1., 1., 0.5],
@@ -2530,7 +2530,7 @@
           x = this.random.range(this.starsSize);
           y = this.random.range(this.starsSize);
           a = this.random.range(Math.PI);
-          s = this.random.range(0.5);
+          s = this.random.gauss(0, 0.2);
           window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
           window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize+this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
           window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize+this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
