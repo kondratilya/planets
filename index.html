@@ -992,14 +992,13 @@
     </script>
 
     <script id="fragment-shader-galaxy" type="notjs">
-      #define e  2.71828182845904523
       varying vec2 v_rpos, v_dpos;
       uniform float u_random;
       uniform float u_spin;
       uniform float u_arms;
       uniform float u_opacity;
-      uniform float u_frame;
       uniform float u_perspective;
+      uniform float u_bulge;
       uniform vec3 u_armscolor;
       uniform vec3 u_bulgecolor;
       uniform vec3 u_dustcolor;
@@ -1027,7 +1026,7 @@
           arms += spiral(d, a+M_PI/5., u_random+200., u_spin*0.8)/4.;
         }
 
-        vec2 bulgev = v_rpos * vec2(0.5,1.0);
+        vec2 bulgev = v_rpos * vec2(0.5, 0.5*u_bulge);
         bulge = pow(clamp(0.1-length(bulgev), 0., 1.), 1.)*10.;
         
         float bright = arms + bulge;
@@ -2514,27 +2513,34 @@
           smallstars: this.random.range(0.98,0.999),
         };
         this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
+        
         window.renderer.useProgram('galaxy');
-        for (let i=0; i<this.random.gauss(5, 5); ++i) {
+        for (let i=0; i<this.random.gauss(10, 5); ++i) {
           params = {
-            roll:this.random.range(0.1,Math.PI/2),
-            spin:Math.PI*this.random.range(3, 4),
-            arms:Math.round(this.random.choice([0, 2, 2, 3, 4, 4])),
-            opacity:this.random.range(0.5,1),
-            armscolor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[.1, 0.2, 1.]
-            bulgeColor:[this.random.range(1), this.random.range(1), this.random.range(1)], //[1., 1., 0.5],
-            dustcolor:[0.4, 0, 0],
-            perspective:0.4,
-            random:this.random.rand()*1234,
+            roll: this.random.range(0.1,Math.PI/2),
+            spin: Math.PI*this.random.range(3, 4),
+            arms: Math.round(this.random.choice([0, 2, 2, 2, 3, 4, 4])),
+            opacity: this.random.range(0.5,1),
+            armscolor: [this.random.range(1), this.random.range(1), this.random.range(1)], //[.1, 0.2, 1.]
+            bulgeColor: [this.random.range(1), this.random.range(1), this.random.range(1)], //[1., 1., 0.5],
+            dustcolor: [0.4, 0, 0],
+            perspective: this.random.range(0,1),
+            bulge: this.random.gauss(2, 0.2),
+            random: this.random.rand()*1234,
           };
-          x = this.random.range(this.starsSize);
-          y = this.random.range(this.starsSize);
+          if (params.arms == 0)params.bulge = this.random.gauss(1, 0.1);
+          x = this.starsSize/2 - this.random.range(this.starsSize);
+          y = this.starsSize/2 - this.random.range(this.starsSize);
           a = this.random.range(Math.PI);
-          s = this.random.gauss(0, 0.2);
-          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
-          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize+this.starsSize/2-x, this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
-          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize/2-x, this.starsSize+this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
-          window.renderer.renderTo(this.stars, this.starsSize, params, this.starsSize+this.starsSize/2-x, this.starsSize+this.starsSize/2-y, this.starsSize/2*s, this.starsSize/2*s, a);
+          s = this.starsSize/2 * (Math.pow(this.random.gauss(0, 0.3), 2) + 0.02);
+
+          window.renderer.renderTo(this.stars, this.starsSize, params, x, y, s, s, a);
+          if (x-s<0 || x+s>this.starsSize)
+            window.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y, s, s, a);
+          if (y-s<0 || y+s>this.starsSize)
+            window.renderer.renderTo(this.stars, this.starsSize, params, x, y+this.starsSize, s, s, a);
+          if ((x-s<0 || x+s>this.starsSize) && (y-s<0 || y+s>this.starsSize))
+            window.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y+this.starsSize, s, s, a);
         }
       }
 
