@@ -968,37 +968,42 @@
       uniform vec2 u_scale;
       
       varying vec2 v_rpos;
-      varying float v_lengthSoFar;
 
       void main() {
         vec2 position = a_position*u_scale + u_position;
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
         gl_Position = vec4(clipSpace * vec2(1, -1), 0.9, 1);
         v_rpos = a_position;
-        v_lengthSoFar = atan(abs(a_position.y), a_position.x);
       }
     </script>
 
     <script id="fragment-shader-orbit" type="notjs">
       varying vec2 v_rpos;
-      varying float v_lengthSoFar;
 
       uniform vec3 u_color;
       uniform float u_dashes;
       uniform float u_angle;
       uniform float u_speed;
       uniform int u_type;
+      uniform vec2 u_scale;
 
       void main() {
         float a, b;
+        float d = length(v_rpos);
+        float angle = atan(v_rpos.y, v_rpos.x);
+
         if (u_type==1||u_type==3) {
-          a = mod(atan(v_rpos.y, v_rpos.x)-u_angle+M_PI*2., M_PI*2.)/(M_PI*2.);
+          a = mod(angle-u_angle+M_PI*2., M_PI*2.)/(M_PI*2.);
           a = clamp(a-1.+u_speed, 0., 1.)*(1./u_speed);
         }
         if (u_type==2||u_type==3) {
-          b = (cos(v_lengthSoFar*u_dashes)+1.)*0.5;
+          b = (cos(angle*u_dashes)+1.)*0.5;
+          if (u_type==3) b*=0.2;
         }
-        gl_FragColor = vec4(u_color, a+b);
+        float w = .5/u_scale.x * max(1., a*1.5);
+        float c = smoothstep(1.-2.*w,1.-w,d)*smoothstep(1.+2.*w,1.+w,d);
+
+        gl_FragColor = vec4(u_color, (a+b)*c);
       }
     </script>
 
@@ -1370,14 +1375,7 @@
           return this.programs[name].use();
         }
         setPositions(positions) {
-          positions = positions || [
-                -1, -1,
-                1, -1,
-                -1, 1,
-                -1, 1,
-                1, -1,
-                1, 1,
-          ];
+          positions = positions || [-1,-1, 1,-1, -1,1, 1,1];
           this.positions = positions;
           this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
           this.count = Math.floor(positions.length/2);
@@ -1389,12 +1387,7 @@
           if (!this.program) return;
           if (typeof a == 'undefined') { a = s1; s1 = s;}
           this.program.setParams(Object.assign({position: [x, y], scale: [s || 1, s1 || s], angle: a || 0}, params));
-          this.gl.drawArrays(this.gl.TRIANGLES, 0, this.count || 6);
-        }
-        orbit(params, x, y, r) {
-          if (!this.program) return;
-          this.program.setParams(Object.assign({position: [x, y], scale: [r, r]}, params));
-          this.gl.drawArrays(this.gl.LINE_LOOP, 0, this.count);
+          this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.count || 4);
         }
         texture(params, resolution, texParams) {
           const gl = this.gl;
@@ -1961,7 +1954,7 @@
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
-          window.renderer.setPositions([0,0, 4,0, 0,2, 0,2, 4,0, 4,2]);
+          window.renderer.setPositions([0,0, 4,0, 0,2, 4,2]);
           this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
           if (this.params.atmosphere) {
             window.renderer.useProgram('planet-cloudmap');
@@ -2469,9 +2462,17 @@
           this.frame = 0;
 
           this.orbitPositions = [];
-          for (let i=0;i<Math.PI*2;i+=Math.PI*2/100) {
-            this.orbitPositions.push(Math.cos(i));
-            this.orbitPositions.push(Math.sin(i));
+          let step = Math.PI*2/100;
+          let w = 0.01, w2 = 1-w, w1 = 1+w;
+          for (let i=0;i<Math.PI*2-step;i+=step) {
+            this.orbitPositions.push(Math.cos(i)*w1);
+            this.orbitPositions.push(Math.sin(i)*w1);
+            this.orbitPositions.push(Math.cos(i+step)*w1);
+            this.orbitPositions.push(Math.sin(i+step)*w1);
+            this.orbitPositions.push(Math.cos(i)*w2);
+            this.orbitPositions.push(Math.sin(i)*w2);
+            this.orbitPositions.push(Math.cos(i+step)*w2);
+            this.orbitPositions.push(Math.sin(i+step)*w2);            
           }
         }
       };
@@ -2586,9 +2587,9 @@
           if (this.drawOrbit && this.orbit.radius>0) {
             let scaledPos = this.parent.pos.scaled(trans);
             window.renderer.useProgram('orbit');
-            let dashes =  Math.ceil(this.orbit.radius*trans.scale);
+            let dashes =  Math.ceil(this.orbit.radius*trans.scale/2);
             params = {color:this.params.groundcolor, dashes:dashes, angle:this.orbit.angle, speed: this.orbit.speed*100, type:window.orbitType};
-            window.renderer.orbit(params, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
+            window.renderer.render(params, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
           }
         }
 
@@ -2618,14 +2619,7 @@
         let scaledPos = this.man.pos.scaled(this.trans);
         let t, a = this.man.a;
 
-        renderer.setPositions([
-              -1, 0,
-              1, 0,
-              -1, 2,
-              -1, 2,
-              1, 0,
-              1, 2,
-        ]);
+        renderer.setPositions([-1,0, 1,0, -1,2, 1,2]);
 
         if (!this.man.onPlanet) {
           window.renderer.useProgram('flame');
@@ -2679,7 +2673,7 @@
           let lightdirection = [-s.x, -s.y, 1];
           let t = rocket.pos.scaled(this.trans);
           if (rocket.fuel > 0) {
-            renderer.setPositions([-1, 0,  1, 0,  -1, 2,  -1, 2,  1, 0,  1, 2,]);
+            renderer.setPositions([-1,0, 1,0, -1,2, 1,2]);
             let t1 = Point.fromPos(t).add(Point.fromPolar(rocket.a, 15));
             window.renderer.useProgram('flame');
             window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame, thrust:1}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
