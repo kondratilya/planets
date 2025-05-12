@@ -1350,11 +1350,13 @@
       class Renderer {
         constructor (canvas) {
           this.programs = {};
+          this.positionslist = {};
           const gl = this.gl = canvas.getContext("webgl", {antialias: false}) || canvas.getContext('experimental-webgl');
           if (!gl) return;
 
           const positionBuffer = gl.createBuffer();
           gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+          this.createPositions('default', [-1,-1, 1,-1, -1,1, 1,1]);
           this.setPositions();
           gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
           gl.clearColor(0, 0, 0, 0);
@@ -1374,12 +1376,15 @@
         useProgram(name) {
           return this.programs[name].use();
         }
+        createPositions(name, positions) {
+          this.positionslist[name] = new Float32Array(positions);
+        }    
         setPositions(positions) {
-          positions = positions || [-1,-1, 1,-1, -1,1, 1,1];
+          positions = this.positionslist[positions || 'default'];
           this.positions = positions;
-          this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
+          this.gl.bufferData(this.gl.ARRAY_BUFFER, positions, this.gl.STATIC_DRAW);
           this.count = Math.floor(positions.length/2);
-        }        
+        }
         clear() {
           this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         }
@@ -1954,7 +1959,7 @@
         }
         generateTex() {
           window.renderer.useProgram('planet-texture');
-          window.renderer.setPositions([0,0, 4,0, 0,2, 4,2]);
+          window.renderer.setPositions('planet-texture');
           this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
           if (this.params.atmosphere) {
             window.renderer.useProgram('planet-cloudmap');
@@ -2430,6 +2435,18 @@
 
           new Program(renderer, "galaxy", "#vertex-shader-black-hole", "#fragment-shader-galaxy");
 
+          const orbitPositions = [];
+          const w = 0.01, w2 = 1-w, w1 = 1+w;
+          for (let i=0; i<Math.PI*2; i+=Math.PI*2/100) {
+            orbitPositions.push(Math.cos(i)*w1);
+            orbitPositions.push(Math.sin(i)*w1);
+            orbitPositions.push(Math.cos(i)*w2);
+            orbitPositions.push(Math.sin(i)*w2);
+          }
+          renderer.createPositions('orbit', orbitPositions);
+          renderer.createPositions('planet-texture', [0,0, 4,0, 0,2, 4,2]);
+          renderer.createPositions('flame', [-1,0, 1,0, -1,2, 1,2]);
+
           window.renderer = renderer;
 
           this.setRandom(getParam('id'));
@@ -2456,24 +2473,9 @@
           this.man = new Man(this.random.choice(startplanets).pos);
           this.man.mode = 'rocket';
 
-
           this.setCenter(new Point(0,0), 0.05, true);
 
           this.frame = 0;
-
-          this.orbitPositions = [];
-          let step = Math.PI*2/100;
-          let w = 0.01, w2 = 1-w, w1 = 1+w;
-          for (let i=0;i<Math.PI*2;i+=step) {
-            this.orbitPositions.push(Math.cos(i)*w1);
-            this.orbitPositions.push(Math.sin(i)*w1);
-            this.orbitPositions.push(Math.cos(i+step)*w1);
-            this.orbitPositions.push(Math.sin(i+step)*w1);
-            this.orbitPositions.push(Math.cos(i)*w2);
-            this.orbitPositions.push(Math.sin(i)*w2);
-            this.orbitPositions.push(Math.cos(i+step)*w2);
-            this.orbitPositions.push(Math.sin(i+step)*w2);            
-          }
         }
       };
 
@@ -2594,7 +2596,7 @@
         }
 
         if (window.orbitType) {
-          renderer.setPositions(this.orbitPositions);
+          renderer.setPositions('orbit');
           this.sun.eachSatelite(drawOrbit, this.trans);
           renderer.setPositions();
         }
@@ -2619,9 +2621,8 @@
         let scaledPos = this.man.pos.scaled(this.trans);
         let t, a = this.man.a;
 
-        renderer.setPositions([-1,0, 1,0, -1,2, 1,2]);
-
-        if (!this.man.onPlanet) {
+        if (this.man.thrust.on && !this.man.onPlanet) {
+          renderer.setPositions('flame');
           window.renderer.useProgram('flame');
           if (this.man.thrust.u) {
             t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
@@ -2648,8 +2649,9 @@
               add(Point.fromPolar(a-Math.PI/2, -10));
            window.renderer.render({color:[0.1,0.5,1.0], frame:this.man.frame, thrust:thrust}, t.x, t.y, 5, 20,  -a-Math.PI*r);
           }
+          renderer.setPositions();
         }
-        renderer.setPositions();
+
         let s = Point.fromPolar(Point.fromPos(this.man.pos).ang() - Math.PI/2-a, 1);
         let lightdirection = [s.x, s.y, 1];
         
@@ -2673,12 +2675,12 @@
           let lightdirection = [-s.x, -s.y, 1];
           let t = rocket.pos.scaled(this.trans);
           if (rocket.fuel > 0) {
-            renderer.setPositions([-1,0, 1,0, -1,2, 1,2]);
             let t1 = Point.fromPos(t).add(Point.fromPolar(rocket.a, 15));
+            window.renderer.setPositions('flame');
             window.renderer.useProgram('flame');
             window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame, thrust:1}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
+            window.renderer.setPositions();
           }
-          renderer.setPositions();
           window.renderer.useProgram('missile');
           window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
         }
