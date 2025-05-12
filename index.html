@@ -438,7 +438,6 @@
       uniform sampler2D u_image;
       uniform sampler2D u_bump;
       uniform sampler2D u_cloudmap;
-      uniform int u_coloring;
       uniform vec3 u_groundcolor;
       uniform vec3 u_groundcolor2;
       uniform vec3 u_seacolor;
@@ -457,7 +456,6 @@
       uniform float u_cloudy;
       uniform float u_cloudchange;
       uniform float u_glow;
-      uniform int u_atmosphere;
 
       vec3 color_sea(vec2 pos, vec4 tex, float light) {
         float height = tex.x;
@@ -520,33 +518,35 @@
 
           vec3 bump = texture2D(u_bump, spherizedCoordTex).xyz;
 
-          if (u_atmosphere > 0) {
+          #if ATMOSPHERE != 0
             clouds_value = clouds(spherized, lengthSq2);
             bump.xy *= (1.-clamp(clouds_value, 0., 1.));
-          }
+          #endif
 
           light = dot(
             normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
             normalize(u_lightdirection) 
           );
 
-          if (u_coloring == 0){
+          #if COLORING == 0
             colour_value = color(tex);
-          } else if (u_coloring == 1){
+          #elif COLORING == 1
             colour_value = color_sea(spherized, tex, light);
-          } else {
+          #else
             colour_value = color_lava(tex, light);            
-          }
+          #endif
 
           vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
           light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
-          if (u_atmosphere > 0) {
+          #if ATMOSPHERE != 0
+            float shadow_value;
             clouds_value += glow/5.*u_glow;
-            float shadow_value = clouds(spherize(v_rpos+normalize(u_lightdirection).xy/50.), lengthSq2);
+            if(clouds_value<1.)
+              shadow_value = clouds(spherize(v_rpos+normalize(u_lightdirection).xy/50.), lengthSq2);
             light -= shadow_value/2. * max(0., 1.-clouds_value);
-          }
+          #endif
 
           gl_FragColor = vec4((colour_value+clouds_value)/2. * max(light, u_lightambient) * u_lightcolor * u_albedo, smoothstep(1.,0.95,lengthSq2));
         } else {
@@ -626,17 +626,17 @@
       varying vec2 v_rpos, v_tpos;
 
       uniform sampler2D u_image;
-      uniform int u_bf;
+      uniform float u_bf;
       uniform float u_angle;
       uniform float u_innerradius;
 
       void main() {
         float len = length(v_rpos);
         float a = atan(v_rpos.y, v_rpos.x);
-        float side_mask = float(u_bf == int(a < 0.0));
-        if (len > u_innerradius && len < 1.0) {
+        float side_mask = step(0., u_bf*v_rpos.y);
+        if (len > u_innerradius && len < 1.0 && side_mask>0.) {
           vec4 tex = texture2D(u_image, v_tpos, cos((a+M_PI/2.)*2.)*2.);
-          gl_FragColor = vec4(tex.rgb, tex.a*side_mask);
+          gl_FragColor = vec4(tex.rgb, tex.a);
         } else {
           discard;
         }
@@ -759,7 +759,6 @@
     </script>
 
     <script id="fragment-shader-space-texture" type="notjs">
-      #define OVEREXPOSURE 0.9
       varying vec2 v_rpos;
 
       uniform vec2 u_scale;
@@ -770,7 +769,7 @@
       uniform float u_smallstars;
 
       vec2 star(vec2 craterpos, float scale, float glow) {
-        vec2 p = abs((v_rpos)-craterpos);
+        vec2 p = abs(v_rpos-craterpos);
         p.x = min(p.x-1., p.x);
         p.y = min(p.y-1., p.y);
         float l = length(p);
@@ -895,8 +894,7 @@
         v_tpos =  ( a_position*u_scale + u_position - u_s_position/u_s_scale*u_resolution ) / u_s_scale ;
         v_rpos = a_position;
         v_dpos = vec2(v_rpos.x, v_rpos.y/sin(u_roll));
-      }      
-
+      }
     </script>
 
     <script id="fragment-shader-black-hole" type="notjs">
@@ -1200,11 +1198,17 @@
       }
 
       class Program {
-        constructor(renderer, name, vsel, fsel) {
+        static defines(text, params) {
+          for (let param in params || []) {
+            text = `#define ${param} ${params[param]}\n${text}`;
+          }
+          return text;
+        }
+        constructor(renderer, name, vsel, fsel, params) {
           this.renderer = renderer;
           const gl = this.gl = renderer.gl;
-          const vertexShader = this.createShader(gl.VERTEX_SHADER, document.querySelector(vsel).text);
-          const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, document.querySelector("#fragment-shader-lib").text + document.querySelector(fsel).text);
+          const vertexShader = this.createShader(gl.VERTEX_SHADER, this.constructor.defines(document.querySelector(vsel).text, params));
+          const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, this.constructor.defines(document.querySelector("#fragment-shader-lib").text + document.querySelector(fsel).text, params));
           this.program = this.createProgram(vertexShader, fragmentShader);
           const positionAttributeLocation = gl.getAttribLocation(this.program, "a_position");
 
@@ -1891,7 +1895,8 @@
           this.params.lightcolor = [1, 1, 1];
           this.params.albedo = 1;
           this.rotation = this.random.range(Math.PI*2);
-          this.program = window.renderer.programs.planet;
+          this.program = window.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
+          window.renderer.programs.planet;
           this.orbitColor = this.params.groundcolor;
           this.generateTex();
           if (this.random.rand() < 0.3 && radius > 100) {
@@ -1910,7 +1915,7 @@
 
           if (this.rings) {
             window.renderer.programs['rings'].use().renderer.render(
-              Object.assign(this.rings, {bf:0}),
+              Object.assign(this.rings, {bf:-1}),
               scaledPos.x, 
               scaledPos.y,
               this.radius*this.rings.size*trans.scale,
@@ -1919,7 +1924,7 @@
             );
           }
 
-          window.renderer.programs['planet'].use().renderer.render(
+          this.program.use().renderer.render(
             this.params, 
             scaledPos.x, 
             scaledPos.y,
@@ -2422,12 +2427,17 @@
           new Program(renderer, "planet-lava-glow", "#vertex-shader-space", "#fragment-shader-planet-lava-glow");
           new Program(renderer, "planet-normalmap", "#vertex-shader-space", "#fragment-shader-normalmap");
           new Program(renderer, "planet-cloudmap", "#vertex-shader-2d", "#fragment-shader-cloudmap");
-          new Program(renderer, "planet", "#vertex-shader-2d", "#fragment-shader-planet");
+          new Program(renderer, "planet00", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 0});
+          new Program(renderer, "planet01", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 0});
+          new Program(renderer, "planet02", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 0});
+          new Program(renderer, "planet10", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 1});
+          new Program(renderer, "planet11", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 1});
+          new Program(renderer, "planet12", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 1});
 
           new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
           new Program(renderer, "rings", "#vertex-shader-rings", "#fragment-shader-rings");
 
-          new Program(renderer, "space-texture", "#vertex-shader-2d", "#fragment-shader-space-texture");
+          new Program(renderer, "space-texture", "#vertex-shader-2d", "#fragment-shader-space-texture", {OVEREXPOSURE: 0.9});
           new Program(renderer, "space", "#vertex-shader-space", "#fragment-shader-space");
 
           new Program(renderer, "black-hole-accretion", "#vertex-shader-black-hole", "#fragment-shader-black-hole-accretion");
@@ -2605,8 +2615,7 @@
 
         if (this.man && this.man.onPlanet) {
           let size = Math.min(this.width, this.height)/4.5;
-          window.renderer.useProgram('planet');
-          window.renderer.render(this.man.onPlanet.params, size, size, size*0.8, this.man.onPlanet.rotation);
+          this.man.onPlanet.program.use().renderer.render(this.man.onPlanet.params, size, size, size*0.8, this.man.onPlanet.rotation);
         }
       }
 
@@ -2688,7 +2697,7 @@
 
       MovingRect.prototype.draw = function() {
         window.renderer.clear();
-        
+
         if (!window.paused)        
           this.sun.move();
         if (this.man)
