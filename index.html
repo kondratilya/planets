@@ -6,6 +6,12 @@
 
     <script id="fragment-shader-lib" type="notjs">
       #define M_PI 3.1415926535897932384626433832795
+      #ifndef NOIZE3D
+        #define NOIZE3D 8
+      #endif
+      #ifndef NOIZE4D
+        #define NOIZE4D 5
+      #endif
       precision highp float;
 
       //  Simplex 3D Noise 
@@ -63,7 +69,7 @@
         float amplitude = 1.0, frequency = 1.0;
         float n = 0.0;
 
-        for(int o = 0; o < 8; o++){
+        for(int o = 0; o < NOIZE3D; o++) {
           n += amplitude * snoise(pos/params.x*frequency);
           amplitude *= params.y;
           frequency *= params.z;
@@ -164,7 +170,7 @@
         float amplitude = 1.0, frequency = 1.0;
         float n = 0.0;
 
-        for(int o = 0; o < 5; o++){
+        for(int o = 0; o < NOIZE4D; o++) {
           n += amplitude * snoise((pos)/params.x*frequency);
           amplitude *= params.y;
           frequency *= params.z;
@@ -180,9 +186,9 @@
       }
 
       vec2 spherize(vec2 pos) {
-        float da = atan(pos.y, pos.x);
-        float dr = asin(length(pos)) / M_PI * 2.0;
-        return vec2(cos(da)*dr, sin(da)*dr);
+        float l = length(pos);
+        float dr = asin(l) / M_PI * 2.0;
+        return pos/l*dr;
       }
 
       vec3 hsl2rgb(vec3 c) {
@@ -311,7 +317,7 @@
 
             float creterHeight = N2(randInndex+40.);
 
-            float ln = length(ccoord) * 2. + dsize;
+            float ln = d * 2. + dsize;
             if (ln > 0.) {
               float outer = max(0., sech(ln*2.) - sech(2.));
               float inner = 2. * pow(ln, 2.) - 0.5;
@@ -329,8 +335,7 @@
       void main() {
         float height, moisture;
 
-        vec2 spherizedCoord = v_rpos;
-        vec2 loopCoord = spherizedCoord * M_PI/2.0 + vec2(0.0, u_random);
+        vec2 loopCoord = v_rpos * M_PI/2.0 + vec2(0.0, u_random);
         vec3 noizeCoord = vec3(cos(loopCoord.x), sin(loopCoord.x), loopCoord.y);
 
         if (u_type == 0){
@@ -1355,7 +1360,7 @@
         constructor (canvas) {
           this.programs = {};
           this.positionslist = {};
-          const gl = this.gl = canvas.getContext("webgl", {antialias: false}) || canvas.getContext('experimental-webgl');
+          const gl = this.gl = canvas.getContext("webgl", {antialias: false, alpha:false}) || canvas.getContext('experimental-webgl');
           if (!gl) return;
 
           const positionBuffer = gl.createBuffer();
