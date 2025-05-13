@@ -910,14 +910,14 @@
 
       void main() {
         float r = min(u_radius, 0.5);
-        float a = atan(v_rpos.y, v_rpos.x), d = length(v_rpos);
+        float d = length(v_rpos);
         float x = abs(pow(r-d/2., 2.))*sign(r-d/2.);
 
         if (d<u_radius-d) {
           gl_FragColor = vec4(vec3(0), smoothstep(0.0,0.01,u_radius/2.-d));
           //gl_FragColor = vec4(vec3(0.3), 1);
         } else if (x > 0.) {
-          vec2 dispos = v_tpos + vec2(-cos(a), -sin(a))*x;
+          vec2 dispos = v_tpos - normalize(v_rpos)*x;
           gl_FragColor = texture2D(u_image, dispos);
         }
       }
