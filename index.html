@@ -14,11 +14,11 @@
       #endif
       precision highp float;
 
-      //  Simplex 3D Noise 
+      //  Simplex 3D Noise
       //  by Ian McEwan, Stefan Gustavson (https://github.com/stegu/webgl-noise)
       vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
       vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-      float snoise(vec3 v){ 
+      float snoise(vec3 v){
         const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
         const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
         vec3 i  = floor(v + dot(v, C.yyy) );
@@ -30,10 +30,10 @@
         vec3 x1 = x0 - i1 + 1.0 * C.xxx;
         vec3 x2 = x0 - i2 + 2.0 * C.xxx;
         vec3 x3 = x0 - 1. + 3.0 * C.xxx;
-        i = mod(i, 289.0 ); 
-        vec4 p = permute( permute( permute( 
+        i = mod(i, 289.0 );
+        vec4 p = permute( permute( permute(
                    i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-                 + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                 + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
                  + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
         float n_ = 1.0/7.0; // N=7
         vec3  ns = n_ * D.wyz - D.xzx;
@@ -61,7 +61,7 @@
         p3 *= norm.w;
         vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
         m = m * m;
-        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
+        return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),
                                       dot(p2,x2), dot(p3,x3) ) );
       }
 
@@ -75,9 +75,9 @@
           frequency *= params.z;
         }
         return (n+1.0/2.0) * params.w;
-      } 
+      }
 
-      //  Simplex 4D Noise 
+      //  Simplex 4D Noise
       //  by Ian McEwan, Stefan Gustavson (https://github.com/stegu/webgl-noise)
       float permute(float x){return floor(mod(((x*34.0)+1.0)*x, 289.0));}
       float taylorInvSqrt(float r){return 1.79284291400159 - 0.85373472095314 * r;}
@@ -88,7 +88,7 @@
         p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;
         p.w = 1.5 - dot(abs(p.xyz), ones.xyz);
         s = vec4(lessThan(p, vec4(0.0)));
-        p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www; 
+        p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www;
 
         return p;
       }
@@ -123,14 +123,14 @@
         vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );
         vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );
 
-        //  x0 = x0 - 0.0 + 0.0 * C 
+        //  x0 = x0 - 0.0 + 0.0 * C
         vec4 x1 = x0 - i1 + 1.0 * C.xxxx;
         vec4 x2 = x0 - i2 + 2.0 * C.xxxx;
         vec4 x3 = x0 - i3 + 3.0 * C.xxxx;
         vec4 x4 = x0 - 1.0 + 4.0 * C.xxxx;
 
       // Permutations
-        i = mod(i, 289.0); 
+        i = mod(i, 289.0);
         float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);
         vec4 j1 = permute( permute( permute( permute (
                    i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))
@@ -249,7 +249,7 @@
         vec2 rotated = vec2(
           a_position.x * rotation.y + a_position.y * rotation.x,
           a_position.y * rotation.y - a_position.x * rotation.x
-        ); 
+        );
         vec2 position = rotated*u_scale + u_position;
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
         gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
@@ -271,7 +271,7 @@
         vec2 position = vec2(
           scaled.x * rotation.y + scaled.y * rotation.x,
           scaled.y * rotation.y - scaled.x * rotation.x
-        ) + u_position; 
+        ) + u_position;
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
         gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
         v_rpos = a_position;
@@ -305,7 +305,7 @@
 
           vec2 randInndex = vec2(rscoord + u_random + i);
 
-          if (N2(randInndex) > 1.-u_craters){ 
+          if (N2(randInndex) > 1.-u_craters){
             float dsize = N2(randInndex+10.)/2.;
             vec2 dpos = vec2(N2(randInndex+20.)*2.-1., N2(randInndex+30.)*2.-1.) * dsize/2.;
             
@@ -327,7 +327,7 @@
               crater = max(-N2(randInndex+50.)/5., crater);
               result += crater * creterHeight;
             }
-          } 
+          }
         }
         return result;
       }
@@ -405,7 +405,6 @@
       }
 
       void main() {
-        vec2 coord = v_rpos/vec2(2, -2);
         float s=0.001;
         float tl = height(vec2(-s, -s));
         float l = height(vec2(-s, 0));
@@ -422,7 +421,9 @@
 
     <script id="fragment-shader-cloudmap" type="notjs">
       varying vec2 v_rpos;
-
+      uniform sampler2D u_image;
+      uniform int u_coloring;
+      uniform float u_waterlevel;
       uniform float u_random;
 
       void main() {
@@ -462,7 +463,7 @@
       uniform float u_cloudchange;
       uniform float u_glow;
 
-      vec3 color_sea(vec2 pos, vec4 tex, float light) {
+      vec3 color_sea(vec2 pos, vec4 tex) {
         float height = tex.x;
         float moisture = tex.y;
         float climate = (u_climate.y + (u_climate.x-u_climate.y) * (1.-cos(pos.y))) + 0.1;
@@ -472,11 +473,8 @@
 
         if (height < u_waterlevel) {
           vec3 sea = min(u_seacolor*max(height, u_waterlevel/1.5)+tex.z/10., 1.0);
-          if (light > 0.0 && u_seashine > 1.0){
-            sea += pow(light, u_seashine);
-          }
           land = mix(sea, land, smoothstep(u_waterlevel*0.9, u_waterlevel, height));
-        } 
+        }
         if(el > 0.9) {
           vec3 snow = vec3(height/1.5+tex.z+1.);
           land = mix(land, snow, smoothstep(0.8, 1., el));
@@ -491,15 +489,21 @@
         vec3 sea;
 
         if (height < u_waterlevel) {
-          sea = min(u_seacolor*max(0.-height, 0.2)*2.5, 1.0) / max(u_lightambient, light)*5.;
-          land = mix(sea, land, smoothstep(u_waterlevel-0.1, u_waterlevel, height));
-        } 
+          sea = u_seacolor / max(u_lightambient, light)*5.;
+          land = mix(sea, land, smoothstep(u_waterlevel*0.9, u_waterlevel, height));
+        }
         land += u_seacolor * tex.z / max(u_lightambient, light)*5.;
         return land;
       }
 
       vec3 color(vec4 tex) {
         return tex.x*u_groundcolor + (1.0-tex.y)*u_groundcolor2 + tex.z*(u_seacolor);
+      }
+
+      float specular(vec3 normal) {
+        const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
+        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        return pow(dot(normal, halfVector), 100.)*u_seashine;
       }
 
       float clouds(vec2 spherized, float lengthSq2) {
@@ -513,7 +517,7 @@
       void main() {
         vec3 colour_value;
         float clouds_value;
-        float light;
+        float light, specularlight;
         float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
 
         if (lengthSq2 < 1.0) {
@@ -528,17 +532,19 @@
             bump.xy *= (1.-clamp(clouds_value, 0., 1.));
           #endif
 
+          vec3 normal = normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump);
           light = dot(
-            normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump), 
-            normalize(u_lightdirection) 
+            normal,
+            normalize(u_lightdirection)
           );
 
           #if COLORING == 0
             colour_value = color(tex);
           #elif COLORING == 1
-            colour_value = color_sea(spherized, tex, light);
+            colour_value = color_sea(spherized, tex);
+            specularlight = max(0., specular(normal)*(1.-smoothstep(u_waterlevel*0.9, u_waterlevel, tex.x))-clouds_value);
           #else
-            colour_value = color_lava(tex, light);            
+            colour_value = color_lava(tex, light);
           #endif
 
           vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
@@ -553,7 +559,7 @@
             light -= shadow_value/2. * max(0., 1.-clouds_value);
           #endif
 
-          gl_FragColor = vec4((colour_value+clouds_value)/2. * max(light, u_lightambient) * u_lightcolor * u_albedo, smoothstep(1.,0.95,lengthSq2));
+          gl_FragColor = vec4((colour_value+clouds_value)/2. * max(light, u_lightambient) * u_lightcolor * u_albedo + specularlight, smoothstep(1.,0.95,lengthSq2));
         } else {
           discard;
         }
@@ -592,8 +598,8 @@
         vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
         if (tex.w > 0.) {
           float light = dot(
-            normalize(vec3(v_rpos, tex.y)), 
-            normalize(u_lightdirection) 
+            normalize(vec3(v_rpos, tex.y)),
+            normalize(u_lightdirection)
           );
           gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), 1);
         } else {
@@ -669,7 +675,7 @@
             float brightness = center + (1.0 - length) * rays * u_shiny.y;
             gl_FragColor = vec4(u_color * brightness,  brightness);
           } else {
-            gl_FragColor = vec4(1); 
+            gl_FragColor = vec4(1);
           }
         } else {
           discard;
@@ -711,55 +717,90 @@
       uniform vec3 u_color;
       uniform vec3 u_lightdirection;
 
-      void main() {
-        float y = 1.-(v_rpos.y+1.)/2.;
-        float w = sin(y*M_PI*0.8)/3.;
-        float a = 0.;
-        if (y > 0.8) {
-          if (abs(v_rpos.x)<(y-0.5)) {
-            a = smoothstep((y-0.5),(y-0.5)*0.85,abs(v_rpos.x));
-            gl_FragColor = vec4(u_color, a);
-          } 
-        }
-        if (abs(v_rpos.x)<w) {
-          float light = dot(
-            normalize(vec3(v_rpos.x, (v_rpos.y)/10., sqrt(w*0.5 - pow(v_rpos.x, 2.)))), 
-            normalize(u_lightdirection) 
-          );
-          float shade = 1.;
-          if (y>0.4 && y<0.42)shade = 0.7;
-          if (y>0.9 && y<0.92)shade = 0.7;
-          if (y>0.93 && y<0.95)shade = 0.7;
-          if (pow(v_rpos.x-0.1, 2.) + pow(v_rpos.y,2.) < 0.01)shade = 0.4;
-          a += smoothstep(w,w*0.85,abs(v_rpos.x));
-          gl_FragColor = vec4(u_color*max(pow(light, 10.)+light/2., 0.0)*shade, a);
-        }   
+      uniform float u_wide;//=0.33;
+      uniform float u_curvy;//=0.8;
+      uniform vec2 u_wing1;//=vec2(0.7, -1);
+      uniform float u_wing1start;//=-0.2;
+      uniform float u_wing1end;//=-0.9;
+      uniform vec2 u_wing2;//=vec2(0.5,0);
+      uniform float u_wing2start;//=0.6;
+      uniform float u_wingtipspos;//=0.9 ;
+      uniform float u_wingtipslength;//=0.5;
+      uniform vec2 u_cockpit;//=vec2(0.1, 0.4);
+      uniform vec2 u_cockpitpos;//=vec2(0, -0.4);
+      uniform float u_cockpitwidth;//1.;
+      uniform vec3 u_cockpitcolor;//=vec3(0.5, 0.7, 1);
+      uniform float u_ring1;//=0.4;
+      uniform float u_ring2;//=0.9;
+      uniform float u_ring3;//=0.93;
+      uniform vec3 u_ringscolor;//=vec3(1, 0.5, 0.5);
+      
+      float specular(vec3 normal) {
+        const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
+        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        return pow(dot(normal, halfVector), 100.)*1.;
       }
-    </script>
 
-    <script id="fragment-shader-missile" type="notjs">
-      varying vec2 v_rpos;
-      uniform vec3 u_color;
-      uniform vec3 u_lightdirection;
+      float line(vec2 p1, vec2 p2) {
+          float a = p1.y-p2.y;
+          float b = p2.x-p1.x;
+          return a*v_rpos.x+b*v_rpos.y+p1.x*p2.y-p2.x*p1.y;
+      }
+
+      float drawLine(vec2 p1, vec2 p2) {
+        const float thickness = 0.02;
+        float a = abs(distance(p1, v_rpos));
+        float b = abs(distance(p2, v_rpos));
+        float c = abs(distance(p1, p2));
+        if ( a >= c || b >=  c ) return 0.0;
+        float p = (a + b + c) * 0.5;
+        float h = 2. / c * sqrt( p * ( p - a) * ( p - b) * ( p - c));
+        return mix(1.0, 0.0, smoothstep(0.5 * thickness, 1.5 * thickness, h));
+      }
+
+      float triangle(vec2 p1, vec2 p2, vec2 p3){
+        const float smooth = 0.02;
+        return smoothstep(-smooth, smooth, line(p1, p2))*smoothstep(-smooth, smooth, line(p2, p3))*smoothstep(-smooth, smooth, line(p3, p1));
+      }
 
       void main() {
         float y = 1.-(v_rpos.y+1.)/2.;
-        float w = sin(y*M_PI*0.8)/4.;
-        float a = 0.;
-        if (y > 0.8) {
-          if (abs(v_rpos.x)<(y-0.7)) {
-            a = smoothstep((y-0.7),(y-0.7)*0.85,abs(v_rpos.x));
-            gl_FragColor = vec4(u_color, a);
-          } 
-        }
+        float w = sin(y*M_PI*u_curvy)*u_wide;
+
+        vec2 wingtip;
+        wingtip.x = u_wing1.x*u_wingtipspos;
+        wingtip.y = mix(u_wing1.y, (u_wing1start+u_wing1end)/2., 1.-u_wingtipspos);
+        gl_FragColor = vec4(u_color*0.7, max(gl_FragColor.a, triangle(u_wing1*vec2(-1,1), vec2(0.,u_wing1end), vec2(0.,u_wing1start))));
+        gl_FragColor = vec4(u_color*0.7, max(gl_FragColor.a, triangle(u_wing1,            vec2(0.,u_wing1start), vec2(0.,u_wing1end))));
+        gl_FragColor = vec4(u_color*0.7, max(gl_FragColor.a, triangle(u_wing2, vec2(0.,u_wing2start),u_wing2*vec2(-1,1))));
+        gl_FragColor = vec4(u_color*0.7, max(gl_FragColor.a, drawLine(wingtip, wingtip+vec2(0, u_wingtipslength))));
+        gl_FragColor = vec4(u_color*0.7, max(gl_FragColor.a, drawLine(wingtip*vec2(-1,1), wingtip*vec2(-1,1)+vec2(0, u_wingtipslength))));
+
         if (abs(v_rpos.x)<w) {
+          vec3 shade = vec3(1.);
+          vec2 p = v_rpos/vec2(w, 1./u_wide);
+
+          shade = mix(shade, shade*u_ringscolor, smoothstep(u_ring1-0.02, u_ring1, y)*smoothstep(u_ring1+0.02, u_ring1, y));
+          shade = mix(shade, shade*u_ringscolor, smoothstep(u_ring2-0.02, u_ring2, y)*smoothstep(u_ring2+0.02, u_ring2, y));
+          shade = mix(shade, shade*u_ringscolor, smoothstep(u_ring3-0.02, u_ring3, y)*smoothstep(u_ring3+0.02, u_ring3, y));
+
+          vec2 cockpit = (v_rpos-u_cockpitpos)/u_cockpit;
+          cockpit.x /= cockpit.y+u_cockpitwidth;
+          float cockpitstep = smoothstep(1., 0.8, length(cockpit));
+          cockpitstep = smoothstep(1., 0.8, length(cockpit));
+          shade = mix(shade, u_ringscolor, smoothstep(1.1, 1., length(cockpit)));
+          shade = mix(shade, u_cockpitcolor, cockpitstep);
+          p = mix(p, cockpit,  cockpitstep);
+          vec3 normal = normalize(vec3(p, sqrt(1.0 - pow(length(p), 2.))));
           float light = dot(
-            normalize(vec3(v_rpos.x, (v_rpos.y)/10., sqrt(w*0.5 - pow(v_rpos.x, 2.)))), 
-            normalize(u_lightdirection) 
+            normalize(normal),
+            normalize(u_lightdirection)
           );
-          a += smoothstep(w,w*0.85,abs(v_rpos.x));
-          gl_FragColor = vec4(u_color*max(pow(light, 10.)+light/2., 0.0), a);
-        }   
+          float specularlight = specular(normal);
+          light = max(.2, light+specularlight);
+
+          gl_FragColor = vec4(u_color*light*shade, max(gl_FragColor.a, smoothstep(w,w*0.85,abs(v_rpos.x))*smoothstep(1., .95, y)));
+        }
       }
     </script>
 
@@ -795,7 +836,7 @@
         float bigstar;
         float size;
         if (pr>u_smallstars)
-          s.x = N2(v_rpos+100.); 
+          s.x = N2(v_rpos+100.);
         for (float i=0.;i<1000.;++i) {
           bigstar = N2(vec2(i, u_random));
           if (bigstar > u_stars) {
@@ -890,7 +931,7 @@
         vec2 rotated = vec2(
           a_position.x * rotation.y + a_position.y * rotation.x,
           a_position.y * rotation.y - a_position.x * rotation.x
-        ); 
+        );
         vec2 position = rotated*u_scale + u_position;
 
         vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
@@ -1082,7 +1123,7 @@
         }
         function sfc32(a, b, c, d) {
           return function() {
-            a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+            a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
             var t = (a + b) | 0;
             a = b ^ b >>> 9;
             b = c + (c << 3) | 0;
@@ -1114,7 +1155,7 @@
 
         this.randS = function() {
           return `${this.rand()}`.replace('0\.', '');
-        } 
+        }
         this.gauss = function(mean, dev) {
           mean = mean == undefined ? 0.0 : mean;
           dev = dev == undefined ? 1.0 : dev;
@@ -1139,7 +1180,7 @@
         };
         this.range = function (min, max) {
           if (typeof(max) == 'undefined') {
-            max = min; min = 0; 
+            max = min; min = 0;
           }
           return min + this.rand() * (max - min);
         }
@@ -1149,7 +1190,7 @@
 
         this.weighted_choice = function(set, weights) {
           let i;
-          if (typeof(weights) == 'undefined') 
+          if (typeof(weights) == 'undefined')
             return this.choice(set);
           for (i = 1; i < weights.length; i++)
             weights[i] += weights[i - 1];
@@ -1166,12 +1207,12 @@
           }
           if (rule.mean !== undefined || rule.dev !== undefined) {
             let value = this.gauss(rule.mean, rule.dev);
-            if (rule.min !== undefined) 
+            if (rule.min !== undefined)
               value = Math.max(rule.min, value);
-            if (rule.max !== undefined) 
+            if (rule.max !== undefined)
               value = Math.min(rule.max, value);
             return value;
-          }      
+          }
           if (rule.min !== undefined || rule.min !== undefined) {
             return this.range(rule.min, rule.max);
           }
@@ -1221,8 +1262,8 @@
           
           this.use();
           gl.uniform2f(gl.getUniformLocation(this.program, "u_resolution"), gl.canvas.width, gl.canvas.height);
-          this.setters = this.createUniformSetters();  
-          renderer.addProgram(name, this);     
+          this.setters = this.createUniformSetters();
+          renderer.addProgram(name, this);
         }
         use() {
           this.renderer.gl.useProgram(this.program);
@@ -1386,7 +1427,7 @@
         }
         createPositions(name, positions) {
           this.positionslist[name] = new Float32Array(positions);
-        }    
+        }
         setPositions(positions) {
           positions = this.positionslist[positions || 'default'];
           this.positions = positions;
@@ -1464,7 +1505,7 @@
         set (x, y) {
           if (x instanceof Point) {
             this.x=x.x;
-            this.y=x.y;        
+            this.y=x.y;
           } else {
             this.x=x || 0;
             this.y=y || 0;
@@ -1526,7 +1567,7 @@
 
       function hsl2rgb(h,s,l) {
         let a = s*Math.min(l,1-l);
-        let f = (n,k=(n+h/30)%12) => 
+        let f = (n,k=(n+h/30)%12) =>
             Math.trunc((l - a*Math.max(Math.min(k-3,9-k,1),-1))*255);
         return [f(0), f(8), f(4)];
       }
@@ -1587,9 +1628,9 @@
             this.satelites[i].eachSatelite(f, ...args);
         }
         moveOne() { this.orbit.move() }
-        move() { 
+        move() {
           for (let i=0; i<this.satelites.length; ++i)
-            this.satelites[i].move(); 
+            this.satelites[i].move();
           this.moveOne();
         }
         gravitateOne(obj) {
@@ -1600,7 +1641,7 @@
         }
         gravitate(obj) {
           for (let i=0; i<this.satelites.length; ++i)
-            this.satelites[i].gravitate(obj); 
+            this.satelites[i].gravitate(obj);
           this.gravitateOne(obj);
         }
         collisionOne(obj) {
@@ -1613,7 +1654,7 @@
         }
         collision(obj) {
           for (let i=0; i<this.satelites.length; ++i)
-            if (this.satelites[i].collision(obj)) return; 
+            if (this.satelites[i].collision(obj)) return;
           this.collisionOne(obj);
         }
         addSatelite(satelite) {
@@ -1637,8 +1678,8 @@
             if (this.random.rand() < asteroidProb) {
               n++;
               const orbit = new Orbit(
-                d, 
-                this.random.range(Math.PI*2), 
+                d,
+                this.random.range(Math.PI*2),
                 this.random.gauss(0.001, 0.0005),
                 this.random.range(Math.PI*2),
                 this.random.gauss(0, 3) * 0
@@ -1647,8 +1688,8 @@
               asteroidProb = asteroidProb * asteroidProb;
             } else {
               const orbit = new Orbit(
-                d, 
-                this.random.range(Math.PI*2), 
+                d,
+                this.random.range(Math.PI*2),
                 Math.sqrt((this.radius+r)/(d**2))/3,
                 this.random.range(Math.PI*2),
                 this.random.range(0.3, Math.PI*2)/300
@@ -1662,8 +1703,8 @@
           if (this.program) {
             let scaledPos = this.pos.scaled(trans);
             this.program.use().renderer.render(
-              this.params, 
-              scaledPos.x, 
+              this.params,
+              scaledPos.x,
               scaledPos.y,
               this.radius*trans.scale,
               this.radius*trans.scale,
@@ -1676,7 +1717,7 @@
         draw(trans) {
           this.drawOne(trans);
           for (let i=0; i<this.satelites.length; ++i)
-            this.satelites[i].draw(trans); 
+            this.satelites[i].draw(trans);
         }
       }
       class Planet extends CelestialBody {
@@ -1698,7 +1739,7 @@
             cloudchange: 0.05,
             climate: [2, 0],
             lightambient: 0.2,
-            seashine: {mean: 2, dev: 5,},
+            seashine: {mean: 0.3, dev: 0.3, min:0, max:0.8},
             albedo: {mean: 0.5, dev: 0.1, min: 0.1},
             glow: 3,
             atmosphere: 1,
@@ -1789,7 +1830,7 @@
               {min: 0, max: 2,},
               {min: 0, max: 2,},
             ],
-            seacolor: [         
+            seacolor: [
               {min: 1.5, max: 2,},
               {min: 0, max: 2,},
               {min: 0, max: 0.2,},
@@ -1808,7 +1849,7 @@
             cloudchange: 0.05,
             climate: [3, 0],
             lightambient: 0.2,
-            seashine: {mean: 2, dev: 5,},
+            seashine: {mean: 0.3, dev: 0.3, min:0, max:0.8},
             albedo: {mean: 0.5, dev: 0.1, min: 0.1},
             glow: 3,
             atmosphere: {'set':[0,0,1]},
@@ -1876,9 +1917,7 @@
             lightambient: {
               mean: 0.2, dev: 0.1, min: 0.01,
             },
-            seashine: {
-              mean: 2, dev: 5,
-            },
+            seashine: {mean: 0.3, dev: 0.3, min:0, max:0.8},
             albedo: {
               mean: 0.5, dev: 0.1, min: 0.1,
             },
@@ -1891,7 +1930,7 @@
           },
         ];
         weights = [0.5, 0.5, 0.1, 1];
-        //weights = [0, 0., 1, 0];
+//        weights = [0, 0., 1, 0];
         drawOrbit=true;
         constructor(parent, mass, radius, orbit) {
           super(parent.random, parent, mass, radius, orbit);
@@ -1899,18 +1938,21 @@
           this.params.lightcolor = [1, 1, 1];
           this.params.albedo = 1;
           this.rotation = this.random.range(Math.PI*2);
-          this.program = window.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
-          window.renderer.programs.planet;
           this.orbitColor = this.params.groundcolor;
           this.generateTex();
           if (this.random.rand() < 0.3 && radius > 100) {
             this.generateRings();
           }
         }
+        roll(){
+          super.roll();
+          this.params.lightcolor = this.systemParent().light;
+          this.program = window.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
+        }
         drawOne(trans) {
           let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
           let s = Point.fromPolar(a + this.rotation, 1);
-          this.params.lightdirection = [s.x, s.y, 0.5];
+          this.params.lightdirection = [s.x, s.y, 1];
           this.params.lightcolor = this.systemParent().light;
           this.params.rotation = this.orbit.rotationAngle;
           //this.program = window.renderer.programs['planet'];
@@ -1920,7 +1962,7 @@
           if (this.rings) {
             window.renderer.programs['rings'].use().renderer.render(
               Object.assign(this.rings, {bf:-1}),
-              scaledPos.x, 
+              scaledPos.x,
               scaledPos.y,
               this.radius*this.rings.size*trans.scale,
               this.radius*this.rings.size*this.rings.exc*trans.scale,
@@ -1929,8 +1971,8 @@
           }
 
           this.program.use().renderer.render(
-            this.params, 
-            scaledPos.x, 
+            this.params,
+            scaledPos.x,
             scaledPos.y,
             this.radius*trans.scale,
             this.radius*trans.scale,
@@ -1943,7 +1985,7 @@
           if (this.rings) {
             window.renderer.programs['rings'].use().renderer.render(
               Object.assign(this.rings, {bf:1}),
-              scaledPos.x, 
+              scaledPos.x,
               scaledPos.y,
               this.radius*this.rings.size*trans.scale,
               this.radius*this.rings.size*this.rings.exc*trans.scale,
@@ -2004,10 +2046,10 @@
         ];
         constructor(random, mass, radius) {
           super(
-            random, 
-            null, 
-            mass, 
-            radius, 
+            random,
+            null,
+            mass,
+            radius,
             new Orbit(0, 0, 0, 0, random.range(Math.PI / 50))
           );
           this.roll();
@@ -2038,10 +2080,10 @@
         ];
         constructor(random, mass, radius) {
           super(
-            random, 
-            null, 
-            mass, 
-            radius, 
+            random,
+            null,
+            mass,
+            radius,
             new Orbit(0, random.range(Math.PI), random.range(Math.PI / 20, Math.PI / 40), 0, -random.range(Math.PI / 20, Math.PI / 40))
           );
           this.originalRadius = radius;
@@ -2061,7 +2103,7 @@
           let radius = Math.min(this.radius/this.params.radius, 1500);
           if (this.accretion) {
             window.renderer.programs['black-hole-accretion'].use().renderer.render(
-              this.params, 
+              this.params,
               scaledPos.x, scaledPos.y,
               radius*trans.scale, radius*trans.scale,
               0
@@ -2070,7 +2112,7 @@
         }
       }
       class AsteroidBelt extends CelestialBody {
-        sets = [ 
+        sets = [
           {
             n: {mean: 250, dev: 100},
             width: {mean: 100, dev: 20},
@@ -2108,12 +2150,12 @@
         constructor(parent, radius, orbitRadius, speed, orbitWidth) {
           super(parent.random, parent, 0, radius, null);
           this.orbit = new Orbit(
-            orbitRadius+this.random.gauss(0, orbitWidth/2), 
-            this.random.range(Math.PI*2), 
+            orbitRadius+this.random.gauss(0, orbitWidth/2),
+            this.random.range(Math.PI*2),
             speed + this.random.range(Math.PI*2) / 10000,
-            this.random.range(Math.PI*2), 
-            this.random.range(Math.PI*2) / 50, 
-          )          
+            this.random.range(Math.PI*2),
+            this.random.range(Math.PI*2) / 50,
+          )
           this.roll();
           this.generateTex();
           this.program = window.renderer.programs.asteroid;
@@ -2121,11 +2163,11 @@
         roll() {
           super.roll();
           this.params.color = [
-            this.params.luminocity+this.random.gauss(0.1, 0.05), 
-            this.params.luminocity+this.random.gauss(0.1, 0.05), 
+            this.params.luminocity+this.random.gauss(0.1, 0.05),
+            this.params.luminocity+this.random.gauss(0.1, 0.05),
             this.params.luminocity+this.random.gauss(0.1, 0.05)
           ];
-        }        
+        }
         drawOne(trans) {
           let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
           let s = Point.fromPolar(a + this.orbit.rotationAngle, 1);
@@ -2180,6 +2222,31 @@
               if (this._r)this._r = Math.min(1, this._r+this.dr);
             }
           }
+          this.sets = [
+            {
+              color: [0.7, 0.7, 0.7],
+              wide: {mean:0.33, dev:0.02,},
+              curvy: {mean:0.8, dev:0.1},
+              wing1: [{mean:0.7, dev:0.1}, {mean:-0.9, dev:0.1, min:-1}],
+              wing1start: {min:-0.4, max:0.2},
+              wing1end: -0.9,
+              wing2: [{mean:0.5, dev:0.1},{mean:0, dev:0.1}],
+              wing2start: {mean:0.6, dev:0.1},
+              wingtipspos: {mean:0.9, dev:0.2},
+              wingtipslength: {mean:0.5, dev:0.1},
+              cockpit: [0.1, {mean:0.4, dev:0.05}],
+              cockpitpos: [0, {mean:-0.3, dev:0.1}],
+              cockpitwidth: {mean:1.2, dev:0.2, min:1},
+              cockpitcolor: [0.2, 0.7, 1],
+              ring1: {mean:0.4, dev:0.2},
+              ring2: {mean:0.8, dev:0.1},
+              ringscolor: [1, 0.5, 0.5],
+            },
+          ];
+          this.params = random.roll(this.sets);
+          this.params.wing1end = random.range(-1, this.params.wing1start-0.39);
+          this.params.ring3 = this.params.ring2+random.range(0.01, 0.05);
+          if (this.params.wingtipspos > 0.99)this.params.wingtipspos=0;
           this.frame = 0;
         }
 
@@ -2198,7 +2265,7 @@
             this.thrust.l = false;
             return true;
           }
-        }  
+        }
 
         move(sun) {
           this.frame++;
@@ -2334,7 +2401,7 @@
                 this.a = Point.fromPos(n).sub(o).ang();
               } else {
                 // this.a += this.onPlanet.s;
-              }           
+              }
             } else {
               //this.a = this.onPlanetA;
               if (!moved) {
@@ -2371,7 +2438,9 @@
           rocket.dp.set(this.dp);
           world.rockets.add(rocket);
         }
-      }; 
+
+        draw();
+      };
 
       class Rocket{
         constructor(pos,a,s,fuel) {
@@ -2381,12 +2450,32 @@
           this.fuel=fuel || 40;
           this.dp = new Point();
           this.gdp = new Point();
+          this.params = {
+            color: [0.7, 0.7, 0.7],
+            wide: 0.33,
+            curvy: 0.5,
+            wing1: [0.6,-0.8],
+            wing1start: -0.4,
+            wing1end: -1,
+            wing2: [0,1],
+            wing2start: 0,
+            wingtipspos: 0,
+            wingtipslength: 0,
+            cockpit: [0.1, 0.1],
+            cockpitpos: [0, -10],
+            cockpitwidth: 0,
+            cockpitcolor: [0.2, 0.7, 1],
+            ring1: 0.34,
+            ring2: 0.40,
+            ring3: 0.46,
+            ringscolor: [1, 0, 0],
+          };
         }
         land(planet, dp){
           this.onPlanet = planet;
           this.onPlanetA = dp.ang();
           return true;
-        }  
+        }
         move(sun) {
           this.gdp.set(0, 0);
 
@@ -2402,10 +2491,10 @@
           // if (speed > 20) {
           //   this.dp.mul(0.9);
           // }
-          this.pos.sub(this.dp);          
+          this.pos.sub(this.dp);
           sun.collision(this);
         }
-      } 
+      }
 
       MovingRect = function(canvas) {
         this.canvas = canvas;
@@ -2422,7 +2511,6 @@
           new Program(renderer, "sun", "#vertex-shader-2d", "#fragment-shader-sun");
           new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
           new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
-          new Program(renderer, "missile", "#vertex-shader-rings", "#fragment-shader-missile");
 
           new Program(renderer, "asteroid-texture", "#vertex-shader-2d", "#fragment-shader-asteroid-texture");
           new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
@@ -2469,7 +2557,7 @@
 
           console.log(this.sun);
 
-          this.rockets = new Set();  
+          this.rockets = new Set();
 
           this.trans={
             pos: new Point(),
@@ -2479,12 +2567,12 @@
 
           let startplanets = [];
           for (let i=0;i<this.sun.satelites.length;++i) {
-            if (!(this.sun.satelites[i] instanceof Planet)) 
+            if (!(this.sun.satelites[i] instanceof Planet))
               continue;
             startplanets.push(this.sun.satelites[i]);
           }
 
-          this.man = new Man(this.random.choice(startplanets).pos);
+          this.man = new Man(this.random.choice(startplanets).pos, this.random);
           this.man.mode = 'rocket';
 
           this.setCenter(new Point(0,0), 0.05, true);
@@ -2520,7 +2608,7 @@
         }
         let t = Point.fromPos(this.width/2, this.height/2).sub(Point.fromPos(this.unscaledPos).mul(this.trans.scale));
         this.trans.pos = t;
-      } 
+      }
 
       MovingRect.prototype.genaratePlanets = function() {
         if (this.random.choice([0, 1]))
@@ -2528,14 +2616,14 @@
         else
           this.sun = new BlackHole(this.random, 1000*10, 1000);
         this.sun.populate(getParam('population'));
-      } 
+      }
 
       MovingRect.prototype.genarateStars = function(size) {
         this.starsSize = size || 2048;
         window.renderer.setPositions();
         window.renderer.useProgram('space-texture');
         let params = {
-          random:this.random.rand(), 
+          random:this.random.rand(),
           dust:this.random.range(-1,1),
           stars: this.random.range(0.1,0.99),
           smallstars: this.random.range(0.98,0.999),
@@ -2585,7 +2673,7 @@
           let radius = Math.min(this.sun.radius/this.sun.params.radius, 1500);
 
           window.renderer.useProgram('black-hole').renderer.render(
-            this.sun.params, 
+            this.sun.params,
             scaledPos.x, scaledPos.y,
             radius*this.trans.scale, radius*this.trans.scale,
             0
@@ -2627,7 +2715,7 @@
         if(window.hideMan) return;
         // if (this.manNewPos) {
         //   window.renderer.useProgram('fill');
-        //   let scaledPos = this.manNewPos.pos.scaled(this.trans);  
+        //   let scaledPos = this.manNewPos.pos.scaled(this.trans);
         //   window.renderer.render({color:[1,0,0]}, scaledPos.x, scaledPos.y, 10);
         // }
 
@@ -2670,7 +2758,7 @@
         
         t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
         window.renderer.useProgram('rocket');
-        window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 30, 30, -a+Math.PI/2);
+        window.renderer.render(Object.assign({lightdirection:lightdirection}, this.man.params), t.x, t.y, 30, 30, -a+Math.PI/2);
       }
 
       MovingRect.prototype.moveRockets = function() {
@@ -2694,15 +2782,15 @@
             window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame, thrust:1}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
             window.renderer.setPositions();
           }
-          window.renderer.useProgram('missile');
-          window.renderer.render({color:[0.7,0.7,0.7], lightdirection:lightdirection}, t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
+          window.renderer.useProgram('rocket');
+          window.renderer.render(Object.assign({lightdirection:lightdirection}, rocket.params), t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
         }
       }
 
       MovingRect.prototype.draw = function() {
         window.renderer.clear();
 
-        if (!window.paused)        
+        if (!window.paused)
           this.sun.move();
         if (this.man)
           this.man.move(this.sun);
@@ -2744,12 +2832,12 @@
     let favicon = document.createElement('canvas');
     favicon.width = favicon.height = 16;
     let faviconctx = favicon.getContext('2d');
-    let gradient = 
+    let gradient =
       faviconctx.createRadialGradient(8, 8, 10, 10, 14, 9);
     gradient.addColorStop(0.0, '#f00');
     gradient.addColorStop(0.4, '#030');
     gradient.addColorStop(1, '#abc');
-    faviconctx.fillStyle = gradient; 
+    faviconctx.fillStyle = gradient;
     faviconctx.beginPath();
     faviconctx.arc(favicon.width/2, favicon.height/2, favicon.width/2, 0, 2 * Math.PI);
     faviconctx.fill();
@@ -2764,7 +2852,7 @@
       if (e.repeat) { return }
       window.keys = window.keys || {};
       window.keys[e.code] = true;
-      switch (e.code) {  
+      switch (e.code) {
         case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
@@ -2784,31 +2872,31 @@
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
         case 'Space': mr.man.fireRocket(mr); break;
-        case 'NumpadAdd': case 'Equal': 
+        case 'NumpadAdd': case 'Equal':
         case 'NumpadSubtract': case 'Minus': window.scale = false; break;
         case 'KeyO': window.orbitType = (window.orbitType+1)%4; break;
         case 'KeyP': window.paused = !window.paused; break;
-        case 'Digit1': 
+        case 'Digit1':
           if (mr.man.onPlanet) {
             mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
             mr.man.onPlanet.generateTex();
           }
         break;
-        case 'Digit2': 
+        case 'Digit2':
           if (mr.man.onPlanet) {
             mr.man.onPlanet.roll();
             mr.man.onPlanet.generateTex();
           }
         break;
-        case 'Digit3': 
+        case 'Digit3':
           if (mr.man.onPlanet) {
-            if (mr.man.onPlanet.rings) 
+            if (mr.man.onPlanet.rings)
               delete mr.man.onPlanet.rings;
-            else 
+            else
               mr.man.onPlanet.generateRings();
           }
         break;
-        case 'Digit4': 
+        case 'Digit4':
           let satelites = mr.sun.satelites;
           if (mr.random.choice([0, 1]))
             mr.sun = new Sun(mr.random, 1000*10, 1000);
@@ -2818,13 +2906,13 @@
             satelites[i].parent = mr.sun;
           mr.sun.satelites = satelites;
         break;
-        case 'Digit5': 
+        case 'Digit5':
           mr.setRandom();
           mr.genarateStars();
           mr.genaratePlanets();
           mr.man.onPlanet=false;
         break;
-        case 'Digit6': 
+        case 'Digit6':
           mr.genarateStars();
           mr.man.onPlanet=false;
         break;
@@ -2846,14 +2934,14 @@
         window.renderer.gl.uniform2f(window.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
       }
       mr.width = canvas.getBoundingClientRect().width;
-      mr.height = canvas.getBoundingClientRect().height;      
+      mr.height = canvas.getBoundingClientRect().height;
     });
 
     function setDirectionPoint(event) {
       event.preventDefault();
       const rect = event.target.getBoundingClientRect();
-      const x = event.clientX - rect.left; 
-      const y = event.clientY - rect.top;  
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
 
       let pos = new Point(0, 0).sub(mr.trans.pos);
       let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
