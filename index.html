@@ -954,7 +954,7 @@
         float d = length(v_rpos);
         float x = abs(pow(r-d/2., 2.))*sign(r-d/2.);
 
-        if (d<u_radius-d) {
+        if (2.*d < u_radius) {
           gl_FragColor = vec4(vec3(0), smoothstep(0.0,0.01,u_radius/2.-d));
         } else if (x > 0.) {
           vec2 dispos = v_tpos - normalize(v_rpos)*x;
@@ -1040,8 +1040,7 @@
           a = clamp(a-1.+u_speed, 0., 1.)*(1./u_speed);
         }
         if (u_type==2||u_type==3) {
-          b = (cos(angle*u_dashes)+1.)*0.5;
-          if (u_type==3) b*=0.2;
+          b = (cos(angle*u_dashes)+1.)*0.1;
         }
         float w = .5/u_scale.x * max(1., a*1.5);
         float c = smoothstep(1.-3.*w,1.-w,d)*smoothstep(1.+3.*w,1.+w,d);
@@ -1187,7 +1186,6 @@
         this.choice = function (set) {
           return set[Math.floor(this.rand()*set.length)];
         }
-
         this.weighted_choice = function(set, weights) {
           let i;
           if (typeof(weights) == 'undefined')
@@ -1200,7 +1198,6 @@
               break;
           return set[i];
         }
-
         this.getValue = function(rule) {
           if (rule.set !== undefined) {
             return this.choice(rule.set);
@@ -1222,10 +1219,7 @@
           return rule;
         }
         this.roll = function(sets, weights) {
-          let set;
-          if (Array.isArray(sets)) {
-            set = this.weighted_choice(sets, weights);// sets[Math.floor(this.rand() * sets.length)];
-          }
+          let set = Array.isArray(sets) ? this.weighted_choice(sets, weights) : sets;
           let value, params = {};
           for (let key in set) {
             if (Array.isArray(set[key])) {
@@ -1423,7 +1417,8 @@
           return program;
         }
         useProgram(name) {
-          return this.programs[name].use();
+          this.programs[name].use();
+          return this;
         }
         createPositions(name, positions) {
           this.positionslist[name] = new Float32Array(positions);
@@ -1433,14 +1428,19 @@
           this.positions = positions;
           this.gl.bufferData(this.gl.ARRAY_BUFFER, positions, this.gl.STATIC_DRAW);
           this.count = Math.floor(positions.length/2);
+          return this;
         }
         clear() {
           this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         }
-        render(params, x, y, s, s1, a) {
+        render(params, x, y, w, h, a) {
           if (!this.program) return;
-          if (typeof a == 'undefined') { a = s1; s1 = s;}
-          this.program.setParams(Object.assign({position: [x, y], scale: [s || 1, s1 || s], angle: a || 0}, params));
+          if (typeof a == 'undefined') { a = h; h = w;}
+          this.program.setParams(Object.assign({position: [x, y], scale: [w || 1, h || w], angle: a || 0}, params));
+          // params.position = params.position || [x,y];
+          // params.scale = params.scale || [w,a?h:(h||w)];
+          // params.angle = a || 0;
+          this.program.setParams(params);
           this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.count || 4);
         }
         texture(params, resolution, texParams) {
@@ -1580,6 +1580,11 @@
         }
       }
 
+      function lightdirection(pos, a) {
+        const angle = Math.atan2(pos.y, pos.x)+(a||0);
+        return [Math.cos(angle), Math.sin(angle), 1];
+      }
+
       class Orbit {
         constructor(radius, angle, speed, rotationAngle, rotationSpeed) {
           this.radius = radius;
@@ -1596,14 +1601,29 @@
           this.rotationAngle -= this.rotationSpeed;
         }
       }
-      class CelestialBody {
-        constructor(random, parent, mass, radius, orbit) {
+
+      class Body {
+        constructor(world, random) {
+          this.world = world;
+          this.trans = world.trans;
+          random = random || world.random;
+          const seed = random instanceof Random ? `${random.randS()}` : random;
+          this.random = new Random(seed);
+          this.renderer = world.renderer;
+        }
+        
+        get scaledPos() {
+          return this.pos.scaled(this.trans);
+        }
+      }
+
+      class CelestialBody extends Body {
+        constructor(world, random, parent, mass, radius, orbit) {
+          super(world, random);
           this.params = {};
-          this.seed = random instanceof Random ? `${random.randS()}` : random;
-          this.random = new Random(this.seed);
           this.parent = parent;
           this.mass = mass;
-          this.radius = radius;
+          this.originalRadius = this.drawRadius = this.radius = radius;
           this.orbit = orbit;
           this.satelites = [];
           if (this.parent) {
@@ -1619,8 +1639,7 @@
         get y() { return this.parent ? this.parent.y + this.orbit.y : 0; }
         get pos() { return new Point(this.x, this.y); }
         systemParent() {
-          if (!this.parent) return this;
-          return this.parent.systemParent();
+          return this.world.sun;
         }
         eachSatelite(f, ...args) {
           f.apply(this, args);
@@ -1635,7 +1654,7 @@
         }
         gravitateOne(obj) {
           const G = 100;
-          let dist = Math.max((this.pos.dist(obj.pos)), this.radius, 100);
+          let dist = Math.max((this.pos.dist(obj.pos)), this.radius, 500);
           let f = (this.mass / dist**2) * G;
           obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
         }
@@ -1662,8 +1681,8 @@
         }
         populate(population) {
           population = population || 50;
-          let n = Math.floor(this.random.range(this.radius/population))-2;
-          let or = this.radius*2 + this.radius/10;
+          let n = Math.floor(this.random.range(this.originalRadius/population))-2;
+          let or = this.originalRadius*2 + this.originalRadius/10;
           let r, d;
           n = Math.max(0, n);
           if (!this.parent) n = Math.max(n, 6);
@@ -1671,7 +1690,7 @@
           let asteroidProb = (!this.parent) * 0.5;
 
           for (let i=0; i<n; ++i) {
-            r = this.random.range(10, this.radius/2);
+            r = this.random.range(10, this.originalRadius/2);
             d = this.random.range(or-200, or+200);
             or = d + r*2;
 
@@ -1690,7 +1709,7 @@
               const orbit = new Orbit(
                 d,
                 this.random.range(Math.PI*2),
-                Math.sqrt((this.radius+r)/(d**2))/3,
+                Math.sqrt((this.originalRadius+r)/(d**2))/3,
                 this.random.range(Math.PI*2),
                 this.random.range(0.3, Math.PI*2)/300
               );
@@ -1699,27 +1718,29 @@
             }
           }
         }
-        drawOne(trans) {
+        drawOne() {
           if (this.program) {
-            let scaledPos = this.pos.scaled(trans);
+            const scaledPos = this.scaledPos;
             this.program.use().renderer.render(
               this.params,
               scaledPos.x,
               scaledPos.y,
-              this.radius*trans.scale,
-              this.radius*trans.scale,
+              this.drawRadius*this.trans.scale,
+              this.drawRadius*this.trans.scale,
               this.rotation || 0
             );
+
+            if (this.world.man && this.world.man.onPlanet == this)
+              this.world.man.draw();
           }
-          if (window.mr && window.mr.man && window.mr.man.onPlanet == this)
-            window.mr.drawMan();
         }
-        draw(trans) {
-          this.drawOne(trans);
+        draw() {
+          this.drawOne();
           for (let i=0; i<this.satelites.length; ++i)
-            this.satelites[i].draw(trans);
+            this.satelites[i].draw();
         }
       }
+
       class Planet extends CelestialBody {
         sets = [
           { // earth
@@ -1930,10 +1951,10 @@
           },
         ];
         weights = [0.5, 0.5, 0.1, 1];
-//        weights = [0, 0., 1, 0];
+        // weights = [0, 0., 1, 0];
         drawOrbit=true;
-        constructor(parent, mass, radius, orbit) {
-          super(parent.random, parent, mass, radius, orbit);
+        constructor(parent, mass, radius, orbit, random) {
+          super(parent.world, random || parent.random, parent, mass, radius, orbit);
           this.roll();
           this.params.lightcolor = [1, 1, 1];
           this.params.albedo = 1;
@@ -1947,25 +1968,21 @@
         roll(){
           super.roll();
           this.params.lightcolor = this.systemParent().light;
-          this.program = window.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
+          this.program = this.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
         }
         drawOne(trans) {
-          let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
-          let s = Point.fromPolar(a + this.rotation, 1);
-          this.params.lightdirection = [s.x, s.y, 1];
+          this.params.lightdirection = lightdirection(this.pos, Math.PI+this.rotation);
           this.params.lightcolor = this.systemParent().light;
           this.params.rotation = this.orbit.rotationAngle;
-          //this.program = window.renderer.programs['planet'];
-          //super.drawOne(trans);
-          let scaledPos = this.pos.scaled(trans);
+          const scaledPos = this.scaledPos;
 
           if (this.rings) {
-            window.renderer.programs['rings'].use().renderer.render(
+            this.renderer.useProgram('rings').render(
               Object.assign(this.rings, {bf:-1}),
               scaledPos.x,
               scaledPos.y,
-              this.radius*this.rings.size*trans.scale,
-              this.radius*this.rings.size*this.rings.exc*trans.scale,
+              this.radius*this.rings.size*this.trans.scale,
+              this.radius*this.rings.size*this.rings.exc*this.trans.scale,
               this.rotation
             );
           }
@@ -1974,21 +1991,21 @@
             this.params,
             scaledPos.x,
             scaledPos.y,
-            this.radius*trans.scale,
-            this.radius*trans.scale,
+            this.radius*this.trans.scale,
+            this.radius*this.trans.scale,
             this.rotation || 0
           );
 
-          if (window.mr && window.mr.man && window.mr.man.onPlanet == this)
-            window.mr.drawMan();
+          if (this.world.man && this.world.man.onPlanet == this)
+            this.world.man.draw();
 
           if (this.rings) {
-            window.renderer.programs['rings'].use().renderer.render(
+            this.renderer.programs['rings'].use().renderer.render(
               Object.assign(this.rings, {bf:1}),
               scaledPos.x,
               scaledPos.y,
-              this.radius*this.rings.size*trans.scale,
-              this.radius*this.rings.size*this.rings.exc*trans.scale,
+              this.radius*this.rings.size*this.trans.scale,
+              this.radius*this.rings.size*this.rings.exc*this.trans.scale,
               this.rotation
             );
           }
@@ -2005,32 +2022,27 @@
             color: [luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1)],
             transparency: this.random.range(0.1, 0.2),
           };
-          window.renderer.useProgram('rings-texture');
-          this.rings.image = window.renderer.texture(this.rings, 1024, {MIN_FILTER: window.renderer.gl.LINEAR_MIPMAP_LINEAR});
+          this.rings.image = this.renderer.useProgram('rings-texture').texture(this.rings, 1024, {MIN_FILTER: this.world.renderer.gl.LINEAR_MIPMAP_LINEAR});
         }
         generateTex() {
-          window.renderer.useProgram('planet-texture');
-          window.renderer.setPositions('planet-texture');
-          this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+          this.params.image = this.renderer.useProgram('planet-texture').setPositions('planet-texture').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
           if (this.params.atmosphere) {
-            window.renderer.useProgram('planet-cloudmap');
-            this.params.cloudmap = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+            this.params.cloudmap = this.renderer.useProgram('planet-cloudmap').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
           }else {
             this.params.cloudmap = null;
           }
-          window.renderer.setPositions();
+          this.renderer.setPositions();
           if (this.params.coloring == 2) {
-            window.renderer.useProgram('planet-lava-glow');
-            this.params.image = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+            this.params.image = this.renderer.useProgram('planet-lava-glow').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
           }
           if (this.params.bumpy > 0) {
-            window.renderer.useProgram('planet-normalmap');
-            this.params.bump = window.renderer.texture(this.params, 512, {MIN_FILTER: window.renderer.gl.LINEAR});
+            this.params.bump = this.renderer.useProgram('planet-normalmap').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
           } else {
             this.params.bump = null;
           }
         }
       }
+
       class Sun extends CelestialBody {
         sets = [
           {
@@ -2044,16 +2056,12 @@
             rays: [{mean:0.7, dev:0.3, min:0.2},{mean:0.4, dev:0.1},{min:2, max:10},1],
           },
         ];
-        constructor(random, mass, radius) {
-          super(
-            random,
-            null,
-            mass,
-            radius,
-            new Orbit(0, 0, 0, 0, random.range(Math.PI / 50))
-          );
+        constructor(world, mass, radius, random) {
+          super(world, random || world.random, null, mass, radius, new Orbit(0, 0, 0, 0, world.random.range(Math.PI / 50)));
           this.roll();
-          this.program = window.renderer.programs.sun;
+          this.drawRadius = this.radius;
+          this.radius /= this.params.shiny[0]+1;
+          this.program = this.renderer.programs.sun;
         }
         roll() {
           super.roll();
@@ -2064,63 +2072,48 @@
           this.light = light;
           this.params.color = c;
         }
-        drawOne(trans) {
+        moveOne() {
+          super.moveOne();
           this.params.rotation = this.orbit.rotationAngle;
-          super.drawOne(trans);
         }
       }
+
       class BlackHole extends CelestialBody {
-        sets = [
-          {
-            roll: {min:Math.PI/15, max: Math.PI/5},
-            radius: {min:0.2, max: 0.8},
-            brightness: {min:1, max: 3},
-            hue: 0.1,
-          },
-        ];
-        constructor(random, mass, radius) {
-          super(
-            random,
-            null,
-            mass,
-            radius,
-            new Orbit(0, random.range(Math.PI), random.range(Math.PI / 20, Math.PI / 40), 0, -random.range(Math.PI / 20, Math.PI / 40))
-          );
-          this.originalRadius = radius;
+        sets = {
+          roll: {min:Math.PI/15, max: Math.PI/5},
+          radius: {min:0.2, max: 0.8},
+          brightness: {min:1, max: 3},
+          hue: 0.1,
+          accretion: 1
+        };
+        constructor(world, mass, radius, random) {
+          const orbit = new Orbit(0, world.random.range(Math.PI), world.random.range(Math.PI / 20, Math.PI / 40), 0, -world.random.range(Math.PI / 20, Math.PI / 40));
+          super(world, random || world.random, null, mass, radius, orbit);
           this.roll();
+          this.drawRadius = Math.min(this.radius/this.params.radius, 1500);
+          this.radius = this.drawRadius * this.params.radius/2;
+          if (this.params.accretion)
+            this.program = this.renderer.programs['black-hole-accretion'];
         }
         roll() {
           super.roll();
-          let light = hsl2rgb(this.params.hue*255, 1, this.random.range(0.7, 0.9));
+          const light = hsl2rgb(this.params.hue*255, 1, this.random.range(0.7, 0.9));
           this.light = [light[0]/255, light[1]/255, light[2]/255];
-          this.accretion = true;
         }
-        drawOne(trans) {
+        moveOne() {
+          super.moveOne();
           this.params.frame = this.orbit.rotationAngle;
-          this.rotation = this.orbit.angle;
-          //this.params.roll = Math.sin(this.orbit.rotationAngle/10)/2.;
-          let scaledPos = this.pos.scaled(trans);
-          let radius = Math.min(this.radius/this.params.radius, 1500);
-          if (this.accretion) {
-            window.renderer.programs['black-hole-accretion'].use().renderer.render(
-              this.params,
-              scaledPos.x, scaledPos.y,
-              radius*trans.scale, radius*trans.scale,
-              0
-            );
-          }
         }
       }
+
       class AsteroidBelt extends CelestialBody {
-        sets = [
-          {
+        sets = {
             n: {mean: 250, dev: 100},
             width: {mean: 100, dev: 20},
             size: {mean: 15, dev: 5},
-          }
-        ];
+          };
         constructor(parent, orbit) {
-          super(parent.random, parent, 0, 0, new Orbit(0, 0, 0));
+          super(parent.world, parent.random, parent, 0, 0, new Orbit(0, 0, 0));
           this.roll();
           for (let i=0; i<this.params.n; ++i) {
             new Asteroid(
@@ -2139,16 +2132,15 @@
           return;
         }
       }
+
       class Asteroid extends CelestialBody {
-        sets = [
-          {
-            lightambient: {min:0.1, max:0.3},
-            rough: {min:0.1, max:0.8},
-            luminocity: {min:0.2, max:0.5}
-          },
-        ];
+        sets = {
+          lightambient: {min:0.1, max:0.3},
+          rough: {min:0.1, max:0.8},
+          luminocity: {min:0.2, max:0.5}
+        };
         constructor(parent, radius, orbitRadius, speed, orbitWidth) {
-          super(parent.random, parent, 0, radius, null);
+          super(parent.world, parent.random, parent, 0, radius, null);
           this.orbit = new Orbit(
             orbitRadius+this.random.gauss(0, orbitWidth/2),
             this.random.range(Math.PI*2),
@@ -2158,7 +2150,7 @@
           )
           this.roll();
           this.generateTex();
-          this.program = window.renderer.programs.asteroid;
+          this.program = this.renderer.programs.asteroid;
         }
         roll() {
           super.roll();
@@ -2169,15 +2161,12 @@
           ];
         }
         drawOne(trans) {
-          let a = Point.fromPos(this.pos).sub(this.systemParent().pos).ang() + Math.PI;
-          let s = Point.fromPolar(a + this.orbit.rotationAngle, 1);
-          this.params.lightdirection = [s.x, s.y, 1];
           this.rotation = this.orbit.rotationAngle;
+          this.params.lightdirection = lightdirection(this.pos, Math.PI+this.rotation);
           super.drawOne(trans);
         }
         generateTex() {
-          window.renderer.useProgram('asteroid-texture');
-          this.params.image = window.renderer.texture(this.params, 128, {MIN_FILTER: window.renderer.gl.LINEAR});
+          this.params.image = this.renderer.useProgram('asteroid-texture').texture(this.params, 128, {MIN_FILTER: this.renderer.gl.LINEAR});
         }
         gravitateOne(obj) {
           return;
@@ -2187,8 +2176,9 @@
         }
       }
 
-      class Man {
-        constructor(pos, random) {
+      class Man extends Body{
+        constructor(world, pos) {
+          super(world);
           this.pos = new Point(pos);
           this.a = 0;
           this.s = 0;
@@ -2207,6 +2197,7 @@
             dl: 0.1,
             dr: 0.1,
             get on() { return !!(this.u || this.d || this.l || this.r) },
+            set on(x) { if(!x){this.u=this.d=this.l=this.r=false;} },
             set u(x) { if(!!x!=!!this.u)this._u = x?this.u0:false; },
             set d(x) { if(!!x!=!!this.d)this._d = x?this.d0:false; },
             set l(x) { if(!!x!=!!this.l)this._l = x?this.l0:false; },
@@ -2222,32 +2213,29 @@
               if (this._r)this._r = Math.min(1, this._r+this.dr);
             }
           }
-          this.sets = [
-            {
-              color: [0.7, 0.7, 0.7],
-              wide: {mean:0.33, dev:0.02,},
-              curvy: {mean:0.8, dev:0.1},
-              wing1: [{mean:0.7, dev:0.1}, {mean:-0.9, dev:0.1, min:-1}],
-              wing1start: {min:-0.4, max:0.2},
-              wing1end: -0.9,
-              wing2: [{mean:0.5, dev:0.1},{mean:0, dev:0.1}],
-              wing2start: {mean:0.6, dev:0.1},
-              wingtipspos: {mean:0.9, dev:0.2},
-              wingtipslength: {mean:0.5, dev:0.1},
-              cockpit: [0.1, {mean:0.4, dev:0.05}],
-              cockpitpos: [0, {mean:-0.3, dev:0.1}],
-              cockpitwidth: {mean:1.2, dev:0.2, min:1},
-              cockpitcolor: [0.2, 0.7, 1],
-              ring1: {mean:0.4, dev:0.2},
-              ring2: {mean:0.8, dev:0.1},
-              ringscolor: [1, 0.5, 0.5],
-            },
-          ];
-          this.params = random.roll(this.sets);
-          this.params.wing1end = random.range(-1, this.params.wing1start-0.39);
-          this.params.ring3 = this.params.ring2+random.range(0.01, 0.05);
+          this.sets = {
+            color: [0.7, 0.7, 0.7],
+            wide: {mean:0.33, dev:0.02,},
+            curvy: {mean:0.8, dev:0.1},
+            wing1: [{mean:0.7, dev:0.1}, {mean:-0.9, dev:0.1, min:-1}],
+            wing1start: {min:-0.4, max:0.2},
+            wing1end: -0.9,
+            wing2: [{mean:0.5, dev:0.1},{mean:0, dev:0.1}],
+            wing2start: {mean:0.6, dev:0.1},
+            wingtipspos: {mean:0.9, dev:0.2},
+            wingtipslength: {mean:0.5, dev:0.1},
+            cockpit: [0.1, {mean:0.4, dev:0.05}],
+            cockpitpos: [0, {mean:-0.3, dev:0.1}],
+            cockpitwidth: {mean:1.2, dev:0.2, min:1},
+            cockpitcolor: [0.2, 0.7, 1],
+            ring1: {mean:0.4, dev:0.2},
+            ring2: {mean:0.8, dev:0.1},
+            ringscolor: [1, 0.5, 0.5],
+          };
+          this.params = this.random.roll(this.sets);
+          this.params.wing1end = this.random.range(-1, this.params.wing1start-0.39);
+          this.params.ring3 = this.params.ring2+this.random.range(0.01, 0.05);
           if (this.params.wingtipspos > 0.99)this.params.wingtipspos=0;
-          this.frame = 0;
         }
 
         land(planet, dp){
@@ -2259,45 +2247,31 @@
             this.onPlanet = planet;
             this.onPlanetA = dp.ang();
 
-            mr.manNewPos = false;
-            this.thrust.u = false;
-            this.thrust.r = false;
-            this.thrust.l = false;
+            this.targetPos = false;
+            this.thrust.on = false;
             return true;
           }
         }
 
-        move(sun) {
-          this.frame++;
+        move() {
           this.gdp.set(0, 0);
           let oldPos = Point.fromPos(this.pos);
 
-          if (window.hideMan) {
+          if (this.hidden) {
             const speed = 1000;
             this.pos.sub((this.thrust.l||0-this.thrust.r||0)*speed, (this.thrust.u||0-this.thrust.d||0)*speed);
             return;
           }
 
-          //sun.eachSatelite(function(obj) {this.gravitate(obj)}, this);
-          sun.gravitate(this);
+          this.world.sun.gravitate(this);
 
           this.dp.add(this.gdp);
-
-          // let objScaledPos = this.pos.scaled(mr.trans);
-          // let forceScaledPos = Point.fromPos(this.pos).add(new Point(this.gdp).mul(-10000)).scaled(mr.trans);
-          // mr.ctx.strokeStyle = '#f00';
-          // mr.ctx.lineWidth=2;
-          // mr.ctx.setLineDash([]);
-          // mr.ctx.beginPath();
-          // mr.ctx.moveTo(objScaledPos.x, objScaledPos.y);
-          // mr.ctx.lineTo(forceScaledPos.x, forceScaledPos.y);
-          // mr.ctx.stroke();
 
           let wasOnPlanet = this.onPlanet;
 
           this.stillTakingOff = false;
           if (!this.onPlanet) {
-            sun.collision(this);
+            this.world.sun.collision(this);
           }
           if (!this.stillTakingOff) {
             this.takingOff = false;
@@ -2305,9 +2279,9 @@
 
           let sp=1;
           let ts = 1;
-          if (mr.manNewPos) {
+          if (this.targetPos) {
             let mod = (a, n) => (a % n + n) % n;
-            let diff = new Point(mr.manNewPos.pos).sub(this.pos)
+            let diff = new Point(this.targetPos.pos).sub(this.pos)
             let ga = diff.ang();
             let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
             
@@ -2319,11 +2293,9 @@
             this.thrust.u = true;
                            
             if (diff.len() < 2000)sp = 0.5;
-            if (diff.len() < this.r+(mr.manNewPos.radius || 200)) {
-              mr.manNewPos = false;
-              this.thrust.u = false;
-              this.thrust.r = false;
-              this.thrust.l = false;
+            if (diff.len() < this.r+(this.targetPos.radius || 200)) {
+              this.targetPos = false;
+              this.thrust.on = false;
             }
           }
 
@@ -2336,7 +2308,6 @@
               this.onPlanetA = Point.fromPos(this.pos).sub(this.takingOff.pos).ang();
               this.pos = Point.fromPolar(this.onPlanetA, this.takingOff.radius).add(this.takingOff.pos);
             }
-
           }
 
           if (!wasOnPlanet && this.onPlanet) {
@@ -2433,15 +2404,63 @@
           this.thrust.move();
         }
 
-        fireRocket(world) {
-          const rocket = new Rocket(Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100)), this.a+Math.PI, 0.44, 100);
+        draw() {
+          if(this.hidden) return;
+          let scaledPos = this.pos.scaled(this.world.trans);
+          let t, a = this.a;
+
+          if (this.thrust.on && !this.onPlanet) {
+            this.world.renderer.setPositions('flame').useProgram('flame');
+            if (this.thrust.u) {
+              t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
+              this.world.renderer.render({color:[1.0,0.5,1.0], frame:this.world.frame, thrust:this.thrust.u}, t.x, t.y, 10, 30, -a-Math.PI/2);
+            }
+            let l = 1, r = 0;
+            if (this.thrust.d) {
+              if (this.thrust.r) l=0.75;
+              else l = 0.5;
+              if (this.thrust.l) r=-0.25;
+              else r = -0.5;
+            }
+            if (this.thrust.d || this.thrust.r) {
+              let thrust = ((this.thrust.d||0)+(this.thrust.r||0))/(!!this.thrust.d+!!this.thrust.r);
+              t = Point.fromPos(scaledPos).
+                add(Point.fromPolar(a, 25)).
+                add(Point.fromPolar(a-Math.PI/2, 10));
+              this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, 5, 20, -a+Math.PI*l);
+            }
+            if (this.thrust.d || this.thrust.l) {
+              let thrust = ((this.thrust.d||0)+(this.thrust.l||0))/(!!this.thrust.d+!!this.thrust.l);
+              t = Point.fromPos(scaledPos).
+                add(Point.fromPolar(a, 25)).
+                add(Point.fromPolar(a-Math.PI/2, -10));
+             this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, 5, 20,  -a-Math.PI*r);
+            }
+            this.world.renderer.setPositions();
+          }
+
+          this.params.lightdirection = lightdirection(this.pos, -Math.PI/2-a);
+          t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
+          this.world.renderer.useProgram('rocket').render(Object.assign({lightdirection:lightdirection}, this.params), t.x, t.y, 30, 30, -a+Math.PI/2);
+        }
+
+        hide() {
+          this.hidden = !this.hidden; 
+          this.onPlanet=false;
+          this.thrust.on = false;
+          this.dp.set(0,0);
+        }
+
+        fireRocket() {
+          const rocket = new Rocket(this.world,Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100)), this.a+Math.PI, 0.44, 100);
           rocket.dp.set(this.dp);
-          world.rockets.add(rocket);
+          this.world.rockets.add(rocket);
         }
       };
 
-      class Rocket{
-        constructor(pos,a,s,fuel) {
+      class Rocket extends Body{
+        constructor(world,pos,a,s,fuel) {
+          super(world);
           this.pos = new Point(pos);
           this.a=a;
           this.s=s;
@@ -2474,10 +2493,11 @@
           this.onPlanetA = dp.ang();
           return true;
         }
-        move(sun) {
+        move() {
           this.gdp.set(0, 0);
 
-          sun.gravitate(this);
+          if(this.frame > 10)
+            this.world.sun.gravitate(this);
           
           if (this.fuel > 0) {
             this.dp.add(Point.fromPolar(this.a, this.s));
@@ -2490,7 +2510,20 @@
           //   this.dp.mul(0.9);
           // }
           this.pos.sub(this.dp);
-          sun.collision(this);
+          this.world.sun.collision(this);
+
+          this.frame++;
+        }
+
+        draw() {
+          this.params.lightdirection = lightdirection(this.pos, -Math.PI/2-a);
+          let t = this.scaledPos;
+          if (this.fuel > 0) {
+            let t1 = Point.fromPos(t).add(Point.fromPolar(this.a, 15));
+            this.renderer.useProgram('flame').setPositions('flame').render({color:[1.0,0.5,0.5], frame:this.world.frame, thrust:1}, t1.x, t1.y, 5, 10, -this.a+Math.PI/2);
+            this.renderer.setPositions();
+          }
+          this.renderer.useProgram('rocket').render(Object.assign({lightdirection:lightdirection}, this.params), t.x, t.y, 20, 20, -this.a-Math.PI/2);
         }
       }
 
@@ -2501,7 +2534,14 @@
           this.width = this.canvas.getBoundingClientRect().width;
           this.height = this.canvas.getBoundingClientRect().height;
 
+          this.trans={
+            pos: new Point(),
+            scale: 0.1,
+            unscaledPos: new Point(),
+          };
+
           const renderer = new Renderer(this.canvas);
+          this.renderer = renderer;
 
           new Program(renderer, "orbit", "#vertex-shader-orbit", "#fragment-shader-orbit");
           new Program(renderer, "fill", "#vertex-shader-2d", "#fragment-shader-fill");
@@ -2547,8 +2587,6 @@
           renderer.createPositions('planet-texture', [0,0, 4,0, 0,2, 4,2]);
           renderer.createPositions('flame', [-1,0, 1,0, -1,2, 1,2]);
 
-          window.renderer = renderer;
-
           this.setRandom(getParam('id'));
           this.genarateStars();
           this.genaratePlanets();
@@ -2557,12 +2595,6 @@
 
           this.rockets = new Set();
 
-          this.trans={
-            pos: new Point(),
-            scale: 0.1,
-            unscaledPos: new Point(),
-          };
-
           let startplanets = [];
           for (let i=0;i<this.sun.satelites.length;++i) {
             if (!(this.sun.satelites[i] instanceof Planet))
@@ -2570,7 +2602,7 @@
             startplanets.push(this.sun.satelites[i]);
           }
 
-          this.man = new Man(this.random.choice(startplanets).pos, this.random);
+          this.man = new Man(this, this.random.choice(startplanets).pos);
           this.man.mode = 'rocket';
 
           this.setCenter(new Point(0,0), 0.05, true);
@@ -2595,12 +2627,12 @@
         } else {
           if (scale) {
             let ds = scale - this.trans.scale;
-            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(window.scaleSpeed||200);
+            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(this.scaleSpeed||200);
           }
           let d = Point.fromPos(pos).sub(this.unscaledPos);
           this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
           this.unscaledPos.y += Math.sqrt(Math.abs(d.y))*Math.sign(d.y)*2;
-          if (window.paused) {
+          if (this.paused) {
             this.unscaledPos = pos;
           }
         }
@@ -2610,25 +2642,24 @@
 
       MovingRect.prototype.genaratePlanets = function() {
         if (this.random.choice([0, 1]))
-          this.sun = new Sun(this.random, 1000*10, 1000);
+          this.sun = new Sun(this, 1000*10, 1000);
         else
-          this.sun = new BlackHole(this.random, 1000*10, 1000);
+          this.sun = new BlackHole(this, 1000*10, 1000);
         this.sun.populate(getParam('population'));
       }
 
       MovingRect.prototype.genarateStars = function(size) {
         this.starsSize = size || 2048;
-        window.renderer.setPositions();
-        window.renderer.useProgram('space-texture');
+        ;
         let params = {
           random:this.random.rand(),
           dust:this.random.range(-1,1),
           stars: this.random.range(0.1,0.99),
           smallstars: this.random.range(0.98,0.999),
         };
-        this.stars = window.renderer.texture(params, this.starsSize, {MIN_FILTER: window.renderer.gl.LINEAR});
+        this.stars = this.renderer.useProgram('space-texture').setPositions().texture(params, this.starsSize, {MIN_FILTER: this.renderer.gl.LINEAR});
         
-        window.renderer.useProgram('galaxy');
+        this.renderer.useProgram('galaxy');
         for (let i=0; i<this.random.gauss(10, 5); ++i) {
           params = {
             roll: this.random.range(0.1,Math.PI/2),
@@ -2648,39 +2679,32 @@
           a = this.random.range(Math.PI);
           s = this.starsSize/2 * (Math.pow(this.random.gauss(0, 0.3), 2) + 0.02);
 
-          window.renderer.renderTo(this.stars, this.starsSize, params, x, y, s, s, a);
+          this.renderer.renderTo(this.stars, this.starsSize, params, x, y, s, s, a);
           if (x-s<0 || x+s>this.starsSize)
-            window.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y, s, s, a);
+            this.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y, s, s, a);
           if (y-s<0 || y+s>this.starsSize)
-            window.renderer.renderTo(this.stars, this.starsSize, params, x, y+this.starsSize, s, s, a);
+            this.renderer.renderTo(this.stars, this.starsSize, params, x, y+this.starsSize, s, s, a);
           if ((x-s<0 || x+s>this.starsSize) && (y-s<0 || y+s>this.starsSize))
-            window.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y+this.starsSize, s, s, a);
+            this.renderer.renderTo(this.stars, this.starsSize, params, x+this.starsSize, y+this.starsSize, s, s, a);
         }
       }
 
       MovingRect.prototype.drawStars = function() {
         let d = Point.fromPos(this.sun.pos).sub(this.trans.pos).mul(-0.1);
-        window.renderer.useProgram('space');
-        window.renderer.render({image:this.stars}, d.x, d.y, this.starsSize);
+        this.renderer.useProgram('space').render({image:this.stars}, d.x, d.y, this.starsSize);
         
         if (this.sun instanceof BlackHole) {
           this.sun.params.s_position = [d.x, d.y];
           this.sun.params.s_scale = [this.starsSize, this.starsSize];
           this.sun.params.image = this.stars;
           let scaledPos = this.sun.pos.scaled(this.trans);
-          let radius = Math.min(this.sun.radius/this.sun.params.radius, 1500);
 
-          window.renderer.useProgram('black-hole').renderer.render(
+          this.renderer.useProgram('black-hole').render(
             this.sun.params,
             scaledPos.x, scaledPos.y,
-            radius*this.trans.scale, radius*this.trans.scale,
+            this.sun.drawRadius*this.trans.scale, this.sun.drawRadius*this.trans.scale,
             0
           );
-        }
-
-        if (window.testGalaxy) {
-          window.renderer.useProgram('galaxy');
-          window.renderer.render({roll:this.frame/100, spin:25, arms:1,frame:this.frame/100, opacity:1}, 266, 266, 266, 266, .5);
         }
       }
 
@@ -2688,80 +2712,29 @@
         function drawOrbit(trans) {
           if (this.drawOrbit && this.orbit.radius>0) {
             let scaledPos = this.parent.pos.scaled(trans);
-            window.renderer.useProgram('orbit');
             let dashes =  Math.ceil(this.orbit.radius*trans.scale/2);
-            params = {color:this.params.groundcolor, dashes:dashes, angle:this.orbit.angle, speed: this.orbit.speed*100, type:window.orbitType};
-            window.renderer.render(params, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
+            params = {color:this.params.groundcolor, dashes:dashes, angle:this.orbit.angle, speed: this.orbit.speed*100, type:this.world.orbitType};
+            this.renderer.useProgram('orbit').render(params, scaledPos.x, scaledPos.y, this.orbit.radius*trans.scale);
           }
         }
 
-        if (window.orbitType) {
-          renderer.setPositions('orbit');
+        if (this.orbitType) {
+          this.renderer.setPositions('orbit');
           this.sun.eachSatelite(drawOrbit, this.trans);
-          renderer.setPositions();
+          this.renderer.setPositions();
         }
 
-        this.sun.draw(this.trans);
+        this.sun.draw();
 
-        if (this.man && this.man.onPlanet) {
+        if (this.man && this.man.onPlanet && this.man.onPlanet.program) {
           let size = Math.min(this.width, this.height)/4.5;
           this.man.onPlanet.program.use().renderer.render(this.man.onPlanet.params, size, size, size*0.8, this.man.onPlanet.rotation);
         }
       }
 
-      MovingRect.prototype.drawMan = function() {
-        if(window.hideMan) return;
-        // if (this.manNewPos) {
-        //   window.renderer.useProgram('fill');
-        //   let scaledPos = this.manNewPos.pos.scaled(this.trans);
-        //   window.renderer.render({color:[1,0,0]}, scaledPos.x, scaledPos.y, 10);
-        // }
-
-        let scaledPos = this.man.pos.scaled(this.trans);
-        let t, a = this.man.a;
-
-        if (this.man.thrust.on && !this.man.onPlanet) {
-          renderer.setPositions('flame');
-          window.renderer.useProgram('flame');
-          if (this.man.thrust.u) {
-            t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
-            window.renderer.render({color:[1.0,0.5,1.0], frame:this.man.frame, thrust:this.man.thrust.u}, t.x, t.y, 10, 30, -a-Math.PI/2);
-          }
-          let l = 1, r = 0;
-          if (this.man.thrust.d) {
-            if (this.man.thrust.r) l=0.75;
-            else l = 0.5;
-            if (this.man.thrust.l) r=-0.25;
-            else r = -0.5;
-          }
-          if (this.man.thrust.d || this.man.thrust.r) {
-            let thrust = ((this.man.thrust.d||0)+(this.man.thrust.r||0))/(!!this.man.thrust.d+!!this.man.thrust.r);
-            t = Point.fromPos(scaledPos).
-              add(Point.fromPolar(a, 25)).
-              add(Point.fromPolar(a-Math.PI/2, 10));
-            window.renderer.render({color:[0.1,0.5,1.0], frame:this.man.frame, thrust:thrust}, t.x, t.y, 5, 20, -a+Math.PI*l);
-          }
-          if (this.man.thrust.d || this.man.thrust.l) {
-            let thrust = ((this.man.thrust.d||0)+(this.man.thrust.l||0))/(!!this.man.thrust.d+!!this.man.thrust.l);
-            t = Point.fromPos(scaledPos).
-              add(Point.fromPolar(a, 25)).
-              add(Point.fromPolar(a-Math.PI/2, -10));
-           window.renderer.render({color:[0.1,0.5,1.0], frame:this.man.frame, thrust:thrust}, t.x, t.y, 5, 20,  -a-Math.PI*r);
-          }
-          renderer.setPositions();
-        }
-
-        let s = Point.fromPolar(Point.fromPos(this.man.pos).ang() - Math.PI/2-a, 1);
-        let lightdirection = [s.x, s.y, 1];
-        
-        t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
-        window.renderer.useProgram('rocket');
-        window.renderer.render(Object.assign({lightdirection:lightdirection}, this.man.params), t.x, t.y, 30, 30, -a+Math.PI/2);
-      }
-
       MovingRect.prototype.moveRockets = function() {
         for (let rocket of this.rockets) {
-          rocket.move(this.sun);
+          rocket.move();
           if (rocket.onPlanet) {
             this.rockets.delete(rocket);
           }
@@ -2770,45 +2743,33 @@
 
       MovingRect.prototype.drawRockets = function() {
         for (let rocket of this.rockets) {
-          let s = Point.fromPolar(Point.fromPos(rocket.pos).ang() - Math.PI/2 - rocket.a, 1);
-          let lightdirection = [-s.x, -s.y, 1];
-          let t = rocket.pos.scaled(this.trans);
-          if (rocket.fuel > 0) {
-            let t1 = Point.fromPos(t).add(Point.fromPolar(rocket.a, 15));
-            window.renderer.setPositions('flame');
-            window.renderer.useProgram('flame');
-            window.renderer.render({color:[1.0,0.5,0.5], frame:this.man.frame, thrust:1}, t1.x, t1.y, 5, 10, -rocket.a+Math.PI/2);
-            window.renderer.setPositions();
-          }
-          window.renderer.useProgram('rocket');
-          window.renderer.render(Object.assign({lightdirection:lightdirection}, rocket.params), t.x, t.y, 20, 20, -rocket.a-Math.PI/2);
+          rocket.draw();
         }
-      }
+      }    
 
       MovingRect.prototype.draw = function() {
-        window.renderer.clear();
+        this.renderer.clear();
 
-        if (!window.paused)
+        if (!this.paused)
           this.sun.move();
         if (this.man)
-          this.man.move(this.sun);
+          this.man.move();
         this.moveRockets();
 
         this.drawStars();
         this.drawPlanets();
         this.drawRockets();
         if (this.man && !this.man.onPlanet)
-          this.drawMan();
+          this.man.draw();
 
         if (this.man) {
           let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
-          // if (window.pos) c = window.pos;
-          if (window.scale)  {
+          if (this.scale)  {
             if (this.trans.scale < 0.1)
               c = new Point(0, 0);
-            this.setCenter(c, window.scale);
+            this.setCenter(c, this.scale);
           } else {
-            this.setCenter(c, this.man.thrust.u || this.man.thrust.d || (window.hideMan && (this.man.thrust.l || this.man.thrust.r)) ? 0.1 : 0.2);
+            this.setCenter(c, this.man.thrust.u || this.man.thrust.d || (this.man.hidden && (this.man.thrust.l || this.man.thrust.r)) ? 0.1 : 0.2);
           }
         }
         this.frame++;
@@ -2825,7 +2786,7 @@
     canvas.height = window.innerHeight;
     mr = new MovingRect(canvas);
     mr.draw();
-    window.orbitType = 3;
+    mr.orbitType = 3;
 
     let favicon = document.createElement('canvas');
     favicon.width = favicon.height = 16;
@@ -2851,12 +2812,12 @@
       window.keys = window.keys || {};
       window.keys[e.code] = true;
       switch (e.code) {
-        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.manNewPos=false; break;
-        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.manNewPos=false; break;
-        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.manNewPos=false; break;
-        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.manNewPos=false; break;
-        case 'NumpadAdd': case 'Equal': window.scale = window.hideMan ? 0.6 : 0.4; break;
-        case 'NumpadSubtract': case 'Minus': window.scale = 0.05; break;
+        case 'ArrowDown': case 'KeyS': mr.man.thrust.d = true; mr.man.targetPos=false; break;
+        case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.man.targetPos=false; break;
+        case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.man.targetPos=false; break;
+        case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.man.targetPos=false; break;
+        case 'NumpadAdd': case 'Equal': mr.scale = (mr.man&&mr.man.hidden) ? 0.6 : 0.4; break;
+        case 'NumpadSubtract': case 'Minus': mr.scale = 0.05; break;
       }
       // console.log(e.code);
     });
@@ -2871,9 +2832,9 @@
         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
         case 'Space': mr.man.fireRocket(mr); break;
         case 'NumpadAdd': case 'Equal':
-        case 'NumpadSubtract': case 'Minus': window.scale = false; break;
-        case 'KeyO': window.orbitType = (window.orbitType+1)%4; break;
-        case 'KeyP': window.paused = !window.paused; break;
+        case 'NumpadSubtract': case 'Minus': mr.scale = false; break;
+        case 'KeyO': mr.orbitType = (mr.orbitType+1)%4; break;
+        case 'KeyP': mr.paused = !mr.paused; break;
         case 'Digit1':
           if (mr.man.onPlanet) {
             mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
@@ -2897,9 +2858,9 @@
         case 'Digit4':
           let satelites = mr.sun.satelites;
           if (mr.random.choice([0, 1]))
-            mr.sun = new Sun(mr.random, 1000*10, 1000);
+            mr.sun = new Sun(mr, 1000*10, 1000);
           else
-            mr.sun = new BlackHole(mr.random, 1000*10, 1000);
+            mr.sun = new BlackHole(mr, 1000*10, 1000);
           for (let i=0; i<satelites.length;++i)
             satelites[i].parent = mr.sun;
           mr.sun.satelites = satelites;
@@ -2915,21 +2876,20 @@
           mr.man.onPlanet=false;
         break;
         case 'KeyZ': mr.man.dp.set(0,0); break;
-        case 'KeyG': window.testGalaxy = !window.testGalaxy; break;
-        case 'KeyH': window.hideMan = !window.hideMan; mr.man.onPlanet=false; break;
+        case 'KeyH': mr.man && mr.man.hide(); break;
       }
 
     });
     window.addEventListener("resize", (event) => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      window.renderer.gl.canvas.width = canvas.width;
-      window.renderer.gl.canvas.height = canvas.height;
-      window.renderer.gl.viewport(0, 0, window.renderer.gl.canvas.width, window.renderer.gl.canvas.height);
-      for (program in window.renderer.programs) {
-        let p = window.renderer.programs[program];
+      mr.renderer.gl.canvas.width = canvas.width;
+      mr.renderer.gl.canvas.height = canvas.height;
+      mr.renderer.gl.viewport(0, 0, mr.renderer.gl.canvas.width, mr.renderer.gl.canvas.height);
+      for (program in mr.renderer.programs) {
+        let p = mr.renderer.programs[program];
         p.use();
-        window.renderer.gl.uniform2f(window.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
+        mr.renderer.gl.uniform2f(mr.renderer.gl.getUniformLocation(p.program, "u_resolution"), canvas.width, canvas.height);
       }
       mr.width = canvas.getBoundingClientRect().width;
       mr.height = canvas.getBoundingClientRect().height;
@@ -2947,18 +2907,12 @@
       let xx = (x-mr.trans.pos.x)/mr.trans.scale;
       let yy = (y-mr.trans.pos.y)/mr.trans.scale;
 
-      if (this.onPlanet) {
-        mr.man.onPlanet = false;
-        mr.man.takingOff = this.onPlanet;
-      }
-
-      mr.manNewPos = {pos:new Point(xx, yy)};
+      mr.man.targetPos = {pos:new Point(xx, yy), raduis: 200};
       mr.sun.eachSatelite(function(obj) {
         if (!(this instanceof Planet)) return;
-        let dp = Point.fromPos(mr.manNewPos.pos).sub(this.pos);
+        let dp = Point.fromPos(mr.man.targetPos.pos).sub(this.pos);
           if (dp.len() < this.radius) {
-            mr.manNewPos = this;
-            //console.log(mr.manNewPos);
+            mr.man.targetPos = this;
             return true;
           }
       }, this);
@@ -3009,9 +2963,9 @@
           //const deltaX = (((event.touches[0].pageX + event.touches[1].pageX) / 2) - start.x) * 2; // x2 for accelarated movement
           //const deltaY = (((event.touches[0].pageY + event.touches[1].pageY) / 2) - start.y) * 2; // x2 for accelarated movement
 
-          window.scale = start.scale * imageElementScale;
-          window.scale = Math.min(Math.max(0.05, window.scale), 1);
-          window.scaleSpeed = 20;
+          mr.scale = start.scale * imageElementScale;
+          mr.scale = Math.min(Math.max(0.05, mr.scale), 1);
+          mr.scaleSpeed = 20;
           /*const x = (event.touches[0].pageX + event.touches[1].pageX) / 2;
           const y = (event.touches[0].pageX + event.touches[1].pageX) / 2;
 
@@ -3028,8 +2982,8 @@
 
       imageElement.addEventListener('touchend', (event) => {
         //console.log('touchend');
-        window.scale = false;
-        window.scaleSpeed = false;
+        mr.scale = false;
+        mr.scaleSpeed = false;
         //window.pos = false;
       });
     }
