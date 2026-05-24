@@ -289,6 +289,8 @@
       uniform float u_random;
       uniform vec2 u_grain;
       uniform float u_craters;
+      uniform int u_cracks;
+      uniform vec4 u_cracksmap;
 
       float craters() {
         if (u_craters <= 0.) return 0.;
@@ -352,6 +354,14 @@
 
         float grain = N2(v_rpos+vec2(u_random, 0)) > u_grain.x ? N2(v_rpos+100.)*u_grain.y : 0.;
         gl_FragColor = vec4((height+1.)/2., (moisture+1.)/2., grain, 1);
+
+        for (int i=0;i<10;++i) {
+          if (i >= u_cracks) break;
+          float cracks = abs(noize_harm(noizeCoord+vec3(10*i,0,100), u_cracksmap)-0.5)*2.;
+          cracks = min(0.2, cracks) * 5.;
+          gl_FragColor.x = min(gl_FragColor.x, cracks);
+        }
+
         gl_FragColor.x += craters();
         gl_FragColor.x /= 1.5;
       }
@@ -660,7 +670,6 @@
       uniform vec3 u_color;
       uniform float u_random;
       uniform vec2 u_shiny;
-      uniform float u_transparency;
       uniform float u_rotation;
       uniform vec4 u_rays;
 
@@ -670,7 +679,7 @@
         if (length < 1.0) {
           if (length > 1.0 / (u_shiny.x+1.0)) {
             float a = atan(v_rpos.y, v_rpos.x)*2.0 + u_rotation/2.0;
-            float rays = max(noize_harm(vec3(cos(a), sin(a), length+u_rotation), u_rays)+0.5, 1.);
+            float rays = max(noize_harm(vec3(cos(a)+u_random, sin(a), length+u_rotation), u_rays)+0.5, 1.);
             float center = (1.0/length-1.0)/u_shiny.x;
             float brightness = center + (1.0 - length) * rays * u_shiny.y;
             gl_FragColor = vec4(u_color * brightness,  brightness);
@@ -1098,6 +1107,95 @@
         gl_FragColor -= vec4((1.-u_dustcolor)*dust, 0);
         
         gl_FragColor.a *= u_opacity;
+      }
+    </script>
+
+    <script id="fragment-shader-explosion" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+      uniform float u_random;
+      uniform float u_frame;
+      uniform float u_intensivity;
+      const vec4 raysn = vec4(0.7, 0.4, 2, 1);
+
+      void main() {
+        float len = length(v_rpos);
+        float r = sin(min(u_frame, 50.)/50. * M_PI/2.);
+       
+        if (len < r) {
+          float rays, ball, transp;
+          transp = cos(max(0., u_frame-10.)/50.);
+          ball = smoothstep(r, r*0.5, len);
+          float a = atan(v_rpos.y, v_rpos.x);          
+          float x = mix(v_rpos.x, cos(a), 1.-ball);
+          float y = mix(v_rpos.y, sin(a), 1.-ball);
+          rays = noize_harm(vec3(x, y, sin(len-r-u_frame/100.)+u_random), raysn);
+          rays += ball*u_intensivity;
+          float intensivity = rays-(1.-transp);
+          vec3 color = vec3(intensivity, pow(max(intensivity, 0.0), 2.0) * 0.4, pow(max(intensivity, 0.0), 3.0) * 0.15);
+          gl_FragColor = vec4(color, rays*smoothstep(r, r*0.8, len)*transp);
+        } else {
+          discard;
+        }
+      }
+    </script>
+
+    <script id="fragment-shader-ufo" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+      uniform float u_frame;
+      uniform vec3 u_lightdirection;
+      uniform float u_opacity;
+
+      float specular(vec3 normal) {
+        const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
+        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        return max(0., pow(dot(normal, halfVector), 100.));
+      }
+
+      void main() {
+        float l = length(v_rpos);
+        if (l<1.) {
+          float a = atan(v_rpos.y, v_rpos.x);
+          vec3 body = vec3(v_rpos*smoothstep(0.4,0.6,l)/2., sqrt(1.0 - pow(l, 2.)))*2.;
+          vec3 cockpit = vec3(v_rpos*4., sqrt(1.0 - pow(l, 2.)));
+          vec3 normal = mix(body, cockpit, smoothstep(0.6,0.8,1.-l));
+          normal = normalize(normal);
+
+          vec3 color = u_color;
+          // float windows = smoothstep(0.6, 0.61, l) * smoothstep(0.91, 0.90, l);
+          // windows *= smoothstep(0.15, 0.16, abs(cos(a*4.)));
+          // color = mix(color, vec3(1,1,0), windows);
+
+          for (float i=0.; i<M_PI*2.; i+=M_PI*2./8.) {
+            vec2 window = vec2(cos(i)*0.7, sin(i)*0.7);
+            color = mix(vec3(0.3,0.3,0.3), color, smoothstep(0.1, 0.11, distance(v_rpos, window) ));
+            float l = floor(N2(vec2(i, floor(u_frame/10.))) + 0.5);
+            color = color * l + mix(vec3(1,1,0), color, smoothstep(0.07, 0.08, distance(v_rpos, window) )) * (1.-l);
+            //if (N2(vec2(i, floor(u_frame/10.)))>0.5) {
+            //color = mix(vec3(1,1,0), color, smoothstep(0.07, 0.08, distance(v_rpos, window) ));
+            //}
+          }
+
+          float light = dot(
+            normalize(normal),
+            normalize(u_lightdirection)
+          );
+          float specularlight = specular(normal);
+          light=max(0.2, light);
+
+          gl_FragColor = vec4(color*light+specularlight, smoothstep(1., 0.95, l)*u_opacity);
+          
+        } else discard;
+      }
+    </script>
+
+    <script id="fragment-shader-laser" type="notjs">
+      varying vec2 v_rpos;
+      uniform vec3 u_color;
+      void main() {
+        float l = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
+        gl_FragColor = vec4(u_color, (v_rpos.y+.5)/2.*(1.5-abs(v_rpos.x)) * smoothstep(1.,0.9,l));
       }
     </script>
 
@@ -1533,6 +1631,9 @@
           this.y *= x;
           return this;
         }
+        mul_ (x) {
+          return new Point(this).mul(x);
+        }
         dot (x, y) {
           if (!(x instanceof Point)) {
             return this.dot(new Point(x,y));
@@ -1596,9 +1697,9 @@
         get x() { return Math.cos(this.angle) * this.radius; }
         get y() { return Math.sin(this.angle) * this.radius; }
         get pos() { return new Point(this.x, this.y); }
-        move() {
-          this.angle += this.speed;
-          this.rotationAngle -= this.rotationSpeed;
+        move(fraction) {
+          this.angle += this.speed * fraction;
+          this.rotationAngle -= this.rotationSpeed * fraction;
         }
       }
 
@@ -1629,6 +1730,7 @@
           if (this.parent) {
             this.parent.addSatelite(this);
           }
+          this.name = genName(random);
         }
         roll(){
           if (this.sets)
@@ -1646,11 +1748,11 @@
           for (let i=0; i<this.satelites.length; ++i)
             this.satelites[i].eachSatelite(f, ...args);
         }
-        moveOne() { this.orbit.move() }
-        move() {
+        moveOne(fraction) { this.orbit.move(fraction) }
+        move(fraction) {
           for (let i=0; i<this.satelites.length; ++i)
-            this.satelites[i].move();
-          this.moveOne();
+            this.satelites[i].move(fraction);
+          this.moveOne(fraction);
         }
         gravitateOne(obj) {
           const G = 100;
@@ -1663,18 +1765,16 @@
             this.satelites[i].gravitate(obj);
           this.gravitateOne(obj);
         }
-        collisionOne(obj) {
-          if (obj.land) {
-            let dp = Point.fromPos(obj.pos).sub(this.pos);
-            if (dp.len() < this.radius + (obj.r || 0)) {
-              return obj.land(this, dp);
-            }
+        collisionOne(obj, callback) {
+          let dp = Point.fromPos(obj.pos).sub(this.pos);
+          if (dp.len() < this.radius + (obj.radius || 0)) {
+            return callback.call(obj, this, dp);
           }
         }
-        collision(obj) {
+        collision(obj, callback) {
           for (let i=0; i<this.satelites.length; ++i)
-            if (this.satelites[i].collision(obj)) return;
-          this.collisionOne(obj);
+            if (this.satelites[i].collision(obj, callback)) return;
+          this.collisionOne(obj, callback);
         }
         addSatelite(satelite) {
           this.satelites.push(satelite);
@@ -1765,6 +1865,8 @@
             glow: 3,
             atmosphere: 1,
             craters: {mean: 0.0, dev: 0.1,},
+            cracks: {min: -5, max: 2},
+            cracksmap: [10., 0.6, 2.5, 1],
             bumpy: {mean: 2, dev: 0.5,},
           },
           { // jupiter
@@ -1835,6 +1937,7 @@
             atmosphere: 1,
             craters: -1,
             bumpy: 0,
+            cracks: 0,
           },
           { // lava
             type: {'set':[0,1,2]},
@@ -1875,6 +1978,8 @@
             glow: 3,
             atmosphere: {'set':[0,0,1]},
             craters: {mean: 0, dev: 0.5,},
+            cracks: {min: -2, max: 2},
+            cracksmap: [10., 0.6, 2.5, 1],
             bumpy: {mean: 2, dev: 0.5,},
           },
           {
@@ -1947,6 +2052,8 @@
             },
             atmosphere: {'set': [1,1,0]},
             craters: {min: -0.3, max: 0.95,},
+            cracks: {min: -2, max: 2},
+            cracksmap: [{mean: 10, dev: 2,}, {mean: 0.6, dev: .2,}, {mean: 2.5, dev: .2,}, {mean: 1.5, dev: .5,}],
             bumpy: {mean: 2, dev: 1,},
           },
         ];
@@ -2072,8 +2179,8 @@
           this.light = light;
           this.params.color = c;
         }
-        moveOne() {
-          super.moveOne();
+        moveOne(fraction) {
+          super.moveOne(fraction);
           this.params.rotation = this.orbit.rotationAngle;
         }
       }
@@ -2100,8 +2207,8 @@
           const light = hsl2rgb(this.params.hue*255, 1, this.random.range(0.7, 0.9));
           this.light = [light[0]/255, light[1]/255, light[2]/255];
         }
-        moveOne() {
-          super.moveOne();
+        moveOne(fraction) {
+          super.moveOne(fraction);
           this.params.frame = this.orbit.rotationAngle;
         }
       }
@@ -2128,7 +2235,7 @@
         gravitateOne(obj) {
           return;
         }
-        collisionOne(obj) {
+        collisionOne(obj, callback) {
           return;
         }
       }
@@ -2171,7 +2278,7 @@
         gravitateOne(obj) {
           return;
         }
-        collisionOne(obj) {
+        collisionOne(obj, callback) {
           return;
         }
       }
@@ -2182,12 +2289,24 @@
           this.pos = new Point(pos);
           this.a = 0;
           this.s = 0;
-          this.r = 100;
+          this.radius = 200;
+          this.fire = {
+            ul: this.radius,
+            uw: this.radius/3,
+            ux:-this.radius/3,
+            ml: this.radius*2/3,
+            mw: this.radius/6,
+            mx: this.radius*5/6,
+            my: this.radius/3,
+          }
           this.dp = new Point();
           this.gdp = new Point();
           this.f = new Point();
           this.fuel = 100;
+          let that = this;
           this.thrust = {
+            parent: that,
+            lastInput: 0,
             u0: 0.1,
             d0: 0.1,
             l0: 0.1,
@@ -2196,12 +2315,15 @@
             dd: 0.1,
             dl: 0.1,
             dr: 0.1,
+            enable(x) {
+              this.lastInput = this.parent.world.frame;
+            },
             get on() { return !!(this.u || this.d || this.l || this.r) },
             set on(x) { if(!x){this.u=this.d=this.l=this.r=false;} },
-            set u(x) { if(!!x!=!!this.u)this._u = x?this.u0:false; },
-            set d(x) { if(!!x!=!!this.d)this._d = x?this.d0:false; },
-            set l(x) { if(!!x!=!!this.l)this._l = x?this.l0:false; },
-            set r(x) { if(!!x!=!!this.r)this._r = x?this.r0:false; },
+            set u(x) { if(!!x!=!!this.u)this._u = x?this.u0:false;this.enable(x); },
+            set d(x) { if(!!x!=!!this.d)this._d = x?this.d0:false;this.enable(x); },
+            set l(x) { if(!!x!=!!this.l)this._l = x?this.l0:false;this.enable(x); },
+            set r(x) { if(!!x!=!!this.r)this._r = x?this.r0:false;this.enable(x); },
             get u() { return this._u; },
             get d() { return this._d; },
             get l() { return this._l; },
@@ -2232,10 +2354,22 @@
             ring2: {mean:0.8, dev:0.1},
             ringscolor: [1, 0.5, 0.5],
           };
-          this.params = this.random.roll(this.sets);
-          this.params.wing1end = this.random.range(-1, this.params.wing1start-0.39);
-          this.params.ring3 = this.params.ring2+this.random.range(0.01, 0.05);
-          if (this.params.wingtipspos > 0.99)this.params.wingtipspos=0;
+          this.roll();
+          this.params = {
+            acceleration: 5,
+            brake: 2.5,
+            steering: 0.1,
+            planetSteering: 20,
+          };
+          this.weapons = [this.fireRocket, this.fireLaser, this.fireLaser3]
+          this.switchWeapons();
+        }
+
+        roll() {
+          this.shaderParams = this.random.roll(this.sets);
+          this.shaderParams.wing1end = this.random.range(-1, this.shaderParams.wing1start-0.39);
+          this.shaderParams.ring3 = this.shaderParams.ring2+this.random.range(0.01, 0.05);
+          if (this.shaderParams.wingtipspos > 0.99)this.shaderParams.wingtipspos=0;
         }
 
         land(planet, dp){
@@ -2253,25 +2387,25 @@
           }
         }
 
-        move() {
+        move(fraction) {
           this.gdp.set(0, 0);
           let oldPos = Point.fromPos(this.pos);
 
           if (this.hidden) {
             const speed = 1000;
-            this.pos.sub((this.thrust.l||0-this.thrust.r||0)*speed, (this.thrust.u||0-this.thrust.d||0)*speed);
+            this.pos.sub((this.thrust.l||0-this.thrust.r||0) * speed * fraction, (this.thrust.u||0-this.thrust.d||0) * speed * fraction);
             return;
           }
 
           this.world.sun.gravitate(this);
 
-          this.dp.add(this.gdp);
+          this.dp.add(this.gdp.mul_(fraction));
 
           let wasOnPlanet = this.onPlanet;
 
           this.stillTakingOff = false;
           if (!this.onPlanet) {
-            this.world.sun.collision(this);
+            this.world.sun.collision(this, this.land);
           }
           if (!this.stillTakingOff) {
             this.takingOff = false;
@@ -2293,7 +2427,7 @@
             this.thrust.u = true;
                            
             if (diff.len() < 2000)sp = 0.5;
-            if (diff.len() < this.r+(this.targetPos.radius || 200)) {
+            if (diff.len() < this.radius+(this.targetPos.radius || 200)) {
               this.targetPos = false;
               this.thrust.on = false;
             }
@@ -2322,23 +2456,26 @@
 
           if (!this.onPlanet) {
             if (this.thrust.u) {
-              this.dp.sub(Point.fromPolar(this.a, 5*this.thrust.u*sp));
-              this.fuel -= 1;
+              this.dp.sub(Point.fromPolar(this.a, this.params.acceleration*this.thrust.u*sp).mul(fraction));
+              this.fuel -= 1 * fraction;
             }
             if (this.thrust.d) {
-              this.dp.add(Point.fromPolar(this.a, 2.5*this.thrust.d));
-              this.fuel -= 0.5;
+              this.dp.add(Point.fromPolar(this.a, this.params.brake*this.thrust.d).mul(fraction));
+              this.fuel -= 0.5 * fraction;
             }
             if (this.thrust.r) {
-              this.a += (0.05*this.thrust.r)/this.thrust.planetary;
-              this.fuel -= 0.01;
+              this.a += (this.params.steering*this.thrust.r)/this.thrust.planetary * fraction;
+              this.fuel -= 0.01 * fraction;
             }
             if (this.thrust.l) {
-              this.a -= (0.05*this.thrust.l)/this.thrust.planetary;
-              this.fuel -= 0.01;
+              this.a -= (this.params.steering*this.thrust.l)/this.thrust.planetary * fraction;
+              this.fuel -= 0.01 * fraction;
             }
-            if (this.thrust.planetary > 1)
-              this.thrust.planetary--;
+            if (this.thrust.planetary > 1) {
+              this.thrust.planetary -= fraction;
+            } else {
+              this.thrust.planetary = 1;
+            }
           }
 
           if (this.onPlanet) {
@@ -2352,16 +2489,16 @@
             //   moved = true;
             // }
             if (this.thrust.r) {
-              this.onPlanetA += 10/forA;
+              this.onPlanetA += this.params.planetSteering/forA * fraction;
               moved = true;
             }
             if (this.thrust.l) {
-              this.onPlanetA -= 10/forA;
+              this.onPlanetA -= this.params.planetSteering/forA * fraction;
               moved = true;
             }
 
             let n = Point.fromPolar(this.onPlanetA, this.onPlanet.radius);
-            let newPos = Point.fromPos(this.onPlanet.pos).add(n);
+            let newPos = new Point(this.onPlanet.pos).add(n);
             this.dp = Point.fromPos(oldPos).sub(newPos);
             this.gdp = Point.fromPolar(this.onPlanetA);
             
@@ -2379,7 +2516,7 @@
                 let mod = (a, n) => (a % n + n) % n;
                 let ga = this.onPlanetA;
                 let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
-                this.a += da/15;
+                this.a += da/15 * fraction;
               } else {
                 this.a = this.onPlanetA;
               }
@@ -2391,29 +2528,31 @@
             this.dp.mul(0.95);
           }
 
-          if (!this.thrust.on && !this.onPlanet) {
+          // console.log(this.thrust.lastInput);
+          if (!this.thrust.on && !this.onPlanet && this.world.frame-this.thrust.lastInput > 60) {
             let mod = (a, n) => (a % n + n) % n;
             let ga = this.gdp.ang();
             if (this.pos.len() > 10000)
               ga += Math.PI;
             let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
-            this.a += da/150;
+            this.a += da/150 * fraction;
           }
 
-          this.pos.sub(this.dp);
+          this.pos.sub(this.dp.mul_(fraction));
           this.thrust.move();
         }
 
         draw() {
           if(this.hidden) return;
-          let scaledPos = this.pos.scaled(this.world.trans);
+          const scaledPos = this.pos.scaled(this.world.trans);
+          const scale = this.world.game?this.world.trans.scale:1;
           let t, a = this.a;
 
           if (this.thrust.on && !this.onPlanet) {
             this.world.renderer.setPositions('flame').useProgram('flame');
             if (this.thrust.u) {
-              t = Point.fromPos(scaledPos).add(Point.fromPolar(a, -10));
-              this.world.renderer.render({color:[1.0,0.5,1.0], frame:this.world.frame, thrust:this.thrust.u}, t.x, t.y, 10, 30, -a-Math.PI/2);
+              t = Point.fromPos(scaledPos).add(Point.fromPolar(a, this.fire.ux*scale));
+              this.world.renderer.render({color:[1.0,0.5,1.0], frame:this.world.frame, thrust:this.thrust.u}, t.x, t.y, this.fire.uw*scale, this.fire.ul*scale, -a-Math.PI/2);
             }
             let l = 1, r = 0;
             if (this.thrust.d) {
@@ -2425,23 +2564,23 @@
             if (this.thrust.d || this.thrust.r) {
               let thrust = ((this.thrust.d||0)+(this.thrust.r||0))/(!!this.thrust.d+!!this.thrust.r);
               t = Point.fromPos(scaledPos).
-                add(Point.fromPolar(a, 25)).
-                add(Point.fromPolar(a-Math.PI/2, 10));
-              this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, 5, 20, -a+Math.PI*l);
+                add(Point.fromPolar(a, this.fire.mx*scale)).
+                add(Point.fromPolar(a-Math.PI/2, this.fire.my*scale));
+              this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, this.fire.mw*scale, this.fire.ml*scale, -a+Math.PI*l);
             }
             if (this.thrust.d || this.thrust.l) {
               let thrust = ((this.thrust.d||0)+(this.thrust.l||0))/(!!this.thrust.d+!!this.thrust.l);
               t = Point.fromPos(scaledPos).
-                add(Point.fromPolar(a, 25)).
-                add(Point.fromPolar(a-Math.PI/2, -10));
-             this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, 5, 20,  -a-Math.PI*r);
+                add(Point.fromPolar(a, this.fire.mx*scale)).
+                add(Point.fromPolar(a-Math.PI/2, -this.fire.my*scale));
+             this.world.renderer.render({color:[0.1,0.5,1.0], frame:this.world.frame, thrust:thrust}, t.x, t.y, this.fire.mw*scale, this.fire.ml*scale,  -a-Math.PI*r);
             }
             this.world.renderer.setPositions();
           }
 
-          this.params.lightdirection = lightdirection(this.pos, -Math.PI/2-a);
-          t = Point.fromPos(scaledPos).add(Point.fromPolar(a, 20));
-          this.world.renderer.useProgram('rocket').render(Object.assign({lightdirection:lightdirection}, this.params), t.x, t.y, 30, 30, -a+Math.PI/2);
+          this.shaderParams.lightdirection = lightdirection(this.pos, -Math.PI/2-a);
+          t = Point.fromPos(scaledPos).add(Point.fromPolar(a, (this.radius*2/3)*scale));
+          this.world.renderer.useProgram('rocket').render(this.shaderParams, t.x, t.y, this.radius*scale, this.radius*scale, -a+Math.PI/2);
         }
 
         hide() {
@@ -2452,21 +2591,71 @@
         }
 
         fireRocket() {
-          const rocket = new Rocket(this.world,Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100)), this.a+Math.PI, 0.44, 100);
-          rocket.dp.set(this.dp);
-          this.world.rockets.add(rocket);
+          const startPos = Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100));
+          const rocket = new Rocket(this.world, startPos, this.a+Math.PI, 0.44, 100);
+          rocket.dp.add(this.dp);
+          this.world.rockets.push(rocket);
+        }
+
+        fireLaser() {
+          this.laserSide = -(this.laserSide||1);
+          const startPos = Point.fromPos(this.pos);
+          startPos.add(Point.fromPolar(this.a+Math.PI/2*this.laserSide, this.radius*this.shaderParams.wingtipspos*this.shaderParams.wing1[0]));
+          startPos.add(Point.fromPolar(this.a, this.radius/2));
+          let beam = new Laser(this.world, startPos, this.a+Math.PI, 20);
+          beam.params.color = [0, 0.8, 1];
+          this.world.rockets.push(beam);
+        }
+
+        fireLaser3() {
+          this.laserSide = -(this.laserSide||1);
+          const startPos = Point.fromPos(this.pos);
+          startPos.add(Point.fromPolar(this.a+Math.PI/2*this.laserSide, this.radius*this.shaderParams.wingtipspos*this.shaderParams.wing1[0]));
+          startPos.add(Point.fromPolar(this.a, this.radius/2));
+
+          this.world.rockets.push(new Laser(this.world, startPos, this.a+Math.PI, 20));
+          this.world.rockets.push(new Laser(this.world, startPos, this.a+Math.PI+0.1, 20));
+          this.world.rockets.push(new Laser(this.world, startPos, this.a+Math.PI-0.1, 20));
+        }
+
+        fireWeapon() {
+          this.weapon();
+        }
+
+        switchWeapons() {
+          const i = (this.weapons.indexOf(this.weapon)+1) % this.weapons.length;
+          this.weapon = this.weapons[i];
         }
       };
 
-      class Rocket extends Body{
-        constructor(world,pos,a,s,fuel) {
+      class EnemyOrWeapon extends Body {
+        constructor(world, pos) {
           super(world);
           this.pos = new Point(pos);
+          this.rand = this.random.rand()*1000;
+        }
+        // die() {
+        //   this.fuel = 0;
+        //   this.dead=-100;
+        //   this.collide = ()=>{};
+        //   this.explode = ()=>{};
+        // }
+        // get dead() {
+        //   return this.dead
+        // }
+      }
+
+      class Rocket extends EnemyOrWeapon {
+        constructor(world,pos,a,s,fuel) {
+          super(world, pos);
           this.a=a;
           this.s=s;
           this.fuel=fuel || 40;
-          this.dp = new Point();
+          this.dp = Point.fromPolar(this.a, this.s*10);
+
           this.gdp = new Point();
+          this.frame = 0;
+          this.radius = 100;
           this.params = {
             color: [0.7, 0.7, 0.7],
             wide: 0.33,
@@ -2487,43 +2676,181 @@
             ring3: 0.46,
             ringscolor: [1, 0, 0],
           };
+          this.fire = {
+            ul: this.radius,
+            uw: this.radius/3,
+            ux:-this.radius/3,
+          }          
         }
-        land(planet, dp){
-          this.onPlanet = planet;
-          this.onPlanetA = dp.ang();
+        collide(obj, dp){
+          if (obj instanceof Rocket) return;
+          if (obj instanceof Planet) {
+            this.onPlanet = obj;
+            this.onPlanetA = dp.ang();
+          }
+          this.explode();
           return true;
         }
-        move() {
+        explode() {
+          this.fuel = 0;
+          this.dead=-100;
+          this.collide = ()=>{};
+          this.explode = ()=>{};
+        }
+        move(fraction) {
           this.gdp.set(0, 0);
 
-          if(this.frame > 10)
-            this.world.sun.gravitate(this);
-          
-          if (this.fuel > 0) {
-            this.dp.add(Point.fromPolar(this.a, this.s));
-            this.fuel--;
-          }
-          this.dp.add(this.gdp);
-          
-          // let speed = this.dp.len();
-          // if (speed > 20) {
-          //   this.dp.mul(0.9);
-          // }
-          this.pos.sub(this.dp);
-          this.world.sun.collision(this);
+          if (this.frame>1000)
+            this.explode();
 
-          this.frame++;
+          if (this.onPlanet) {
+            this.pos.set(new Point(this.onPlanet.pos).add(Point.fromPolar(this.onPlanetA, this.onPlanet.radius)));
+          } else {
+            if(this.frame > 10)
+              this.world.sun.gravitate(this);
+            
+            if (this.fuel > 0) {
+              this.dp.add(Point.fromPolar(this.a, this.s).mul_(fraction));
+              this.fuel -= fraction;
+            }
+            this.dp.add(this.gdp.mul_(fraction));
+            this.pos.sub(this.dp.mul_(fraction));
+            if (!this.dead)
+              this.world.sun.collision(this, this.collide);
+          }
+          if (this.dead)this.dead+=4;
+          this.frame += fraction;
         }
 
         draw() {
-          this.params.lightdirection = lightdirection(this.pos, -Math.PI/2-a);
-          let t = this.scaledPos;
+          const scaledPos = this.scaledPos;
+          const scale = this.world.game?this.world.trans.scale:1;
+
           if (this.fuel > 0) {
-            let t1 = Point.fromPos(t).add(Point.fromPolar(this.a, 15));
-            this.renderer.useProgram('flame').setPositions('flame').render({color:[1.0,0.5,0.5], frame:this.world.frame, thrust:1}, t1.x, t1.y, 5, 10, -this.a+Math.PI/2);
+            const t1 = Point.fromPos(scaledPos).add(Point.fromPolar(this.a, this.fire.ux*scale));
+            this.renderer.useProgram('flame').setPositions('flame').render({color:[1.0,0.5,0.5], frame:this.world.frame, thrust:1}, t1.x, t1.y, this.fire.uw*scale, this.fire.ul*scale, -this.a+Math.PI/2);
             this.renderer.setPositions();
           }
-          this.renderer.useProgram('rocket').render(Object.assign({lightdirection:lightdirection}, this.params), t.x, t.y, 20, 20, -this.a-Math.PI/2);
+
+          const expl = Math.abs((this.dead||-100)/-100);
+          this.params.lightdirection = lightdirection(this.pos, Math.PI/2-this.a);
+          this.renderer.useProgram('rocket').render(this.params, scaledPos.x, scaledPos.y, this.radius*scale*expl, this.radius*scale*expl, -this.a-Math.PI/2);
+          if (this.dead) {
+            this.renderer.useProgram('explosion').render({frame:100+this.dead, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*scale, this.radius*scale, -this.a-Math.PI/2);
+          }
+        }
+      }
+
+      class Laser extends EnemyOrWeapon {
+        constructor(world, pos, a, s) {
+          super(world, pos);
+          this.a=a;
+          this.s=s;
+          this.dp = Point.fromPolar(this.a, this.s*10);
+          this.frame = 0;
+          this.radius = 20;
+          this.params = {
+            color: [1, 0, 0],
+          };
+        }
+        collide(obj, dp){
+          if (obj instanceof Laser) return;
+          this.die();
+          return true;
+        }
+        die() {
+          this.fuel = 0;
+          this.dead=-1;
+          this.collide = ()=>{};
+          this.die = ()=>{};
+        }
+        move(fraction) {
+          if (this.frame>1000)
+            this.die();
+
+          if (!this.world.paused)
+              this.pos.sub(this.dp.mul_(fraction));
+          if (!this.dead)
+            this.world.sun.collision(this, this.collide);
+
+          if (this.dead)this.dead+=4;
+          this.frame += fraction;
+        }
+
+        draw() {
+          const scaledPos = this.scaledPos;
+          const scale = this.world.game?this.world.trans.scale:1;
+          this.renderer.setPositions().useProgram('laser').render(this.params, scaledPos.x, scaledPos.y, this.radius*scale, this.radius*this.s*scale, -this.a-Math.PI/2);
+        }
+      }
+
+      class Enemy extends EnemyOrWeapon {
+        constructor(world, pos) {
+          super(world, pos);
+          this.a = 0;
+          this.radius = this.self_radius = this.random.gauss(100, 10);
+          this.gdp = new Point();
+          this.dp = new Point();
+          this.frame = 0;
+          this.rotation = this.random.gauss(0.0, 0.02);
+        }
+        collide(obj, dp){
+          if (obj instanceof Enemy) return;
+          if (obj instanceof CelestialBody && !(obj instanceof Planet)) return;
+          
+          if (obj instanceof Planet) {
+            this.onPlanet = obj;
+            this.onPlanetA = dp.ang();
+            this.land();
+          } else {          
+            this.explode();
+          }
+          return true;
+        }        
+        explode() {
+          this.fuel = 0;
+          this.dead=-100;
+          this.collide = ()=>{};
+          this.explode = ()=>{};
+          this.land = ()=>{};
+        }
+        land() {
+          this.explode();
+          this.is_landing = true;
+        }
+        move(fraction) {
+          this.gdp.set(0, 0);
+
+          if (this.frame>1000)
+            this.land();
+
+          if (this.onPlanet) {
+            this.pos.set(new Point(this.onPlanet.pos).add(Point.fromPolar(this.onPlanetA, this.onPlanet.radius*(-this.dead)/100)));
+          } else {
+            this.world.sun.gravitate(this);
+            this.dp.add(this.gdp.mul_(fraction));
+            this.pos.sub(this.dp.mul_(fraction));
+            this.world.sun.collision(this, this.collide);
+          }
+          if (this.dead)this.dead += fraction;
+          this.a += this.rotation * fraction;
+
+          this.radius = this.self_radius;
+          if (this.frame < 100) {
+            this.radius *= this.frame/100;
+          }
+          this.frame += fraction;
+        }
+        draw() {
+          const scaledPos = this.scaledPos;
+          const expl = Math.max(0, Math.abs(this.dead||-100)-50)/50;
+          const lightdir = lightdirection(this.pos, Math.PI/2-this.a);
+
+          this.renderer.useProgram('ufo').render({color:[0.5, 0.5, 0.5], lightdirection:lightdir, frame:this.frame, random:this.rand, opacity:(-this.dead||100)/100}, scaledPos.x, scaledPos.y, this.radius*expl*this.world.trans.scale, this.radius*expl*this.world.trans.scale, -this.a-Math.PI/2);
+
+          if (this.dead && !this.is_landing) {
+            this.renderer.useProgram('explosion').render({frame:100+this.dead, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*2*this.world.trans.scale, this.radius*2*this.world.trans.scale, -this.a-Math.PI/2);
+          }          
         }
       }
 
@@ -2547,8 +2874,8 @@
           new Program(renderer, "fill", "#vertex-shader-2d", "#fragment-shader-fill");
 
           new Program(renderer, "sun", "#vertex-shader-2d", "#fragment-shader-sun");
-          new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
-          new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
+          new Program(renderer, "black-hole-accretion", "#vertex-shader-black-hole", "#fragment-shader-black-hole-accretion");
+          new Program(renderer, "black-hole", "#vertex-shader-black-hole", "#fragment-shader-black-hole");
 
           new Program(renderer, "asteroid-texture", "#vertex-shader-2d", "#fragment-shader-asteroid-texture");
           new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
@@ -2569,11 +2896,13 @@
 
           new Program(renderer, "space-texture", "#vertex-shader-2d", "#fragment-shader-space-texture", {OVEREXPOSURE: 0.9});
           new Program(renderer, "space", "#vertex-shader-space", "#fragment-shader-space");
-
-          new Program(renderer, "black-hole-accretion", "#vertex-shader-black-hole", "#fragment-shader-black-hole-accretion");
-          new Program(renderer, "black-hole", "#vertex-shader-black-hole", "#fragment-shader-black-hole");
-
           new Program(renderer, "galaxy", "#vertex-shader-black-hole", "#fragment-shader-galaxy");
+
+          new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
+          new Program(renderer, "laser", "#vertex-shader-rings", "#fragment-shader-laser");
+          new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
+          new Program(renderer, "explosion", "#vertex-shader-2d", "#fragment-shader-explosion");
+          new Program(renderer, "ufo", "#vertex-shader-2d", "#fragment-shader-ufo");
 
           const orbitPositions = [];
           const w = 0.01, w2 = 1-w, w1 = 1+w;
@@ -2593,7 +2922,7 @@
 
           console.log(this.sun);
 
-          this.rockets = new Set();
+          this.rockets = [];
 
           let startplanets = [];
           for (let i=0;i<this.sun.satelites.length;++i) {
@@ -2605,9 +2934,11 @@
           this.man = new Man(this, this.random.choice(startplanets).pos);
           this.man.mode = 'rocket';
 
-          this.setCenter(new Point(0,0), 0.05, true);
+          this.setCenter(new Point(0,0), 0.05, 1, true);
 
           this.frame = 0;
+          this.game = 1;
+          this.last = document.timeline.currentTime;
         }
       };
 
@@ -2618,7 +2949,7 @@
         console.log(`#${seed}`);
       }
 
-      MovingRect.prototype.setCenter = function(pos, scale, immidiate) {
+      MovingRect.prototype.setCenter = function(pos, scale, fraction=1, immidiate) {
         if (immidiate) {
           this.unscaledPos = pos;
           if (scale) {
@@ -2627,17 +2958,27 @@
         } else {
           if (scale) {
             let ds = scale - this.trans.scale;
-            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(this.scaleSpeed||200);
+            this.trans.scale += Math.sqrt(Math.abs(ds))*Math.sign(ds)/(this.scaleSpeed||200) * fraction;
           }
           let d = Point.fromPos(pos).sub(this.unscaledPos);
-          this.unscaledPos.x += Math.sqrt(Math.abs(d.x))*Math.sign(d.x)*2;
-          this.unscaledPos.y += Math.sqrt(Math.abs(d.y))*Math.sign(d.y)*2;
+          let l = d.len()
+          if (l != 0) {
+            this.unscaledPos.add(d.mul(1/Math.sqrt(l)*2 * fraction));
+          }
           if (this.paused) {
             this.unscaledPos = pos;
           }
         }
         let t = Point.fromPos(this.width/2, this.height/2).sub(Point.fromPos(this.unscaledPos).mul(this.trans.scale));
         this.trans.pos = t;
+      }
+
+      MovingRect.prototype.mousePos = function() {
+        if (this.mouse) {
+          const xx = (this.mouse.x-this.trans.pos.x)/this.trans.scale;
+          const yy = (this.mouse.y-this.trans.pos.y)/this.trans.scale;
+          this.man.targetPos = {pos:new Point(xx, yy), raduis: 200};
+        }
       }
 
       MovingRect.prototype.genaratePlanets = function() {
@@ -2706,6 +3047,12 @@
             0
           );
         }
+
+        // this.renderer.useProgram('explosion').render({frame:(this.frame*2)%100, random:Math.floor(this.frame/100)*10, intensivity:2}, 200, 500, 100);
+        // const lightdir = lightdirection(new Point(Math.cos(this.frame/100),Math.sin(this.frame/100)), Math.PI/2+this.a);
+
+        //for (let i=0;i<1000;++i)
+        // this.renderer.useProgram('ufo').render({lightdirection:lightdir, frame:this.frame, color:[(Math.sin(this.frame/100)+1)/2, (Math.sin(this.frame/300)+1)/2, (Math.sin(this.frame/500)+1)/2]}, 200, 500, 100, 100, this.frame/200);
       }
 
       MovingRect.prototype.drawPlanets = function() {
@@ -2732,13 +3079,31 @@
         }
       }
 
-      MovingRect.prototype.moveRockets = function() {
-        for (let rocket of this.rockets) {
-          rocket.move();
-          if (rocket.onPlanet) {
-            this.rockets.delete(rocket);
+      MovingRect.prototype.spawnUfo = function() {
+        this.rockets.push(new Enemy(this, Point.fromPolar(this.random.range(Math.PI*2), this.random.range(5000, 10000))));
+      }
+
+      MovingRect.prototype.moveRockets = function(fraction) {
+        for (let i=0; i<this.rockets.length; ++i) {
+          let rocket = this.rockets[i];
+          for (let j=i+1; j<this.rockets.length; ++j) {
+            let rocket1 = this.rockets[j];
+            if ((rocket.dead && rocket.dead>-90) || (rocket1.dead && rocket1.dead>-90)) continue;
+            if (rocket === rocket1) continue;
+            let dp = Point.fromPos(rocket.pos).sub(rocket1.pos);
+            if (dp.len() < rocket.radius + rocket1.radius) {
+              rocket.collide(rocket1, dp);
+              rocket1.collide(rocket, dp.mul(-1));
+            }
           }
+          rocket.move(fraction);
         }
+        this.rockets = this.rockets.filter((rocket)=>{return !(rocket.dead>=0);});
+
+        if (this.random.rand() < 0.001*fraction) {
+          this.spawnUfo();
+        }
+
       }
 
       MovingRect.prototype.drawRockets = function() {
@@ -2747,46 +3112,78 @@
         }
       }    
 
-      MovingRect.prototype.draw = function() {
-        this.renderer.clear();
+      MovingRect.prototype.draw = function(timestamp) {
+        const elapsed = timestamp - this.last;
+        let fraction = elapsed/(1000/60);
+        this.last = timestamp;
+        if (elapsed > 1000) fraction = 1;
 
-        if (!this.paused)
-          this.sun.move();
-        if (this.man)
-          this.man.move();
-        this.moveRockets();
+        fraction *= window.speed;
+
+        this.renderer.clear();
+        this.mousePos();
+
+        let partfraction = fraction;
+        while (partfraction > 0) {
+          let f = Math.min(partfraction, 1);
+          // let f = partfraction;
+          if (!this.paused)
+            this.sun.move(f);
+          if (this.man)
+            this.man.move(f);
+          this.moveRockets(f);
+          if (this.man) {
+            let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
+            if (this.scale)  {
+              if (this.trans.scale < 0.1)
+                c = new Point(0, 0);
+              this.setCenter(c, this.scale, f);
+            } else {
+              this.setCenter(c, this.man.thrust.u || this.man.thrust.d || (this.man.hidden && (this.man.thrust.l || this.man.thrust.r)) ? 0.1 : 0.2, f);
+            }
+          }
+          partfraction--;
+        }
 
         this.drawStars();
         this.drawPlanets();
         this.drawRockets();
+
         if (this.man && !this.man.onPlanet)
           this.man.draw();
 
-        if (this.man) {
-          let c = this.man.onPlanet ? this.man.onPlanet.pos : this.man.pos;
-          if (this.scale)  {
-            if (this.trans.scale < 0.1)
-              c = new Point(0, 0);
-            this.setCenter(c, this.scale);
+        if (this.oldPlanet != this.man.onPlanet) {
+          if (this.man.onPlanet) {
+            drawParams(this.man.onPlanet);
           } else {
-            this.setCenter(c, this.man.thrust.u || this.man.thrust.d || (this.man.hidden && (this.man.thrust.l || this.man.thrust.r)) ? 0.1 : 0.2);
+            drawParams(this.sun);
           }
         }
-        this.frame++;
-        requestAnimationFrame(()=>{this.draw()});
+        this.oldPlanet = this.man.onPlanet;
+
+        this.frame += fraction;
+        requestAnimationFrame((timestamp)=>{this.draw(timestamp)});
       };
     </script>
+    <style>
+      label {display: block;}
+      input {display: block; width:150px}
+    </style>
+    <meta name="google" content="notranslate" />
   </head>
-  <body style="margin: 0px; overflow: hidden">
-    <canvas id="canvas" width="500" height="500" style="background: #000; margin: 0px; overflow: hidden; touch-action: none;"></canvas>
+  <body style="margin: 0px; overflow: hidden; font-family:Trebuchet MS, Lucida Sans Unicode, Lucida Grande, Lucida Sans, Arial, sans-serif">
+    <canvas id="canvas" width="500" height="500" style="background:#000; margin:0px;overflow:hidden;touch-action:none;"></canvas>
+    <div id="panel" style="width:fit-content;height:98%;color:black;position:absolute;top:0;background:aliceblue;right:0;opacity:0.75;overflow-y:auto;display:none;margin:6px;padding:6px;border-radius:6px;box-sizing:border-box;"></div>
+    <div id="label" style="--min-dimension: min(100vw, 100vh);width:fit-content;height:fit-content;color:black;position:absolute;background:aliceblue;top:2%;left:2%;opacity:0.5;overflow-y:auto;margin:6px;padding:6px;border-radius:6px;box-sizing:border-box;"></div>
   </body>
   <script>
     const canvas = document.getElementById('canvas');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     mr = new MovingRect(canvas);
-    mr.draw();
+    window.speed = 1;
     mr.orbitType = 3;
+    mr.draw(document.timeline.currentTime);
 
     let favicon = document.createElement('canvas');
     favicon.width = favicon.height = 16;
@@ -2808,6 +3205,14 @@
     document.getElementsByTagName('head')[0].appendChild(link);
 
     document.addEventListener('keydown', function(e) {
+      if (document.querySelector('#panel').matches(':focus-within')) return;
+
+      if (e.code == 'BracketRight') {
+        window.speed = window.speed + 0.1;
+      } else if (e.code == 'BracketLeft') {
+        window.speed = Math.max(window.speed - 0.1, 0);
+      }
+
       if (e.repeat) { return }
       window.keys = window.keys || {};
       window.keys[e.code] = true;
@@ -2823,6 +3228,8 @@
     });
 
     document.addEventListener('keyup', function(e) {
+      if (document.querySelector('#panel').matches(':focus-within')) return;
+
       window.keys = window.keys || {};
       window.keys[e.code] = false;
       switch (e.code) {
@@ -2830,21 +3237,27 @@
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
-        case 'Space': mr.man.fireRocket(mr); break;
+        case 'Space': mr.man.fireWeapon(mr);mr.man.thrust.enable(); break;
         case 'NumpadAdd': case 'Equal':
         case 'NumpadSubtract': case 'Minus': mr.scale = false; break;
+        case 'KeyQ': mr.man.switchWeapons(); break;
         case 'KeyO': mr.orbitType = (mr.orbitType+1)%4; break;
         case 'KeyP': mr.paused = !mr.paused; break;
+        case 'Backspace': 
+          document.querySelector("#panel").style.display = (document.querySelector("#panel").style.display) == "none" ? "block" : "none";
+        break;
         case 'Digit1':
           if (mr.man.onPlanet) {
             mr.man.onPlanet.params.random = mr.man.onPlanet.random.rand()*1110;
             mr.man.onPlanet.generateTex();
+            drawParams(mr.man.onPlanet);
           }
         break;
         case 'Digit2':
           if (mr.man.onPlanet) {
             mr.man.onPlanet.roll();
             mr.man.onPlanet.generateTex();
+            drawParams(mr.man.onPlanet);
           }
         break;
         case 'Digit3':
@@ -2853,6 +3266,7 @@
               delete mr.man.onPlanet.rings;
             else
               mr.man.onPlanet.generateRings();
+            drawParams(mr.man.onPlanet);
           }
         break;
         case 'Digit4':
@@ -2864,19 +3278,27 @@
           for (let i=0; i<satelites.length;++i)
             satelites[i].parent = mr.sun;
           mr.sun.satelites = satelites;
+          if (!mr.man.onPlanet) {
+            drawParams(mr.sun);
+          }
         break;
         case 'Digit5':
           mr.setRandom();
           mr.genarateStars();
           mr.genaratePlanets();
           mr.man.onPlanet=false;
+          drawParams(mr.sun);
         break;
         case 'Digit6':
           mr.genarateStars();
           mr.man.onPlanet=false;
         break;
+        case 'Digit7':
+          mr.man.roll();
+        break;
         case 'KeyZ': mr.man.dp.set(0,0); break;
         case 'KeyH': mr.man && mr.man.hide(); break;
+        case 'KeyU': mr.spawnUfo(); break;
       }
 
     });
@@ -2901,9 +3323,6 @@
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
-      let pos = new Point(0, 0).sub(mr.trans.pos);
-      let ppos = new Point(x, y).mul(1/mr.trans.scale).add(pos);
-
       let xx = (x-mr.trans.pos.x)/mr.trans.scale;
       let yy = (y-mr.trans.pos.y)/mr.trans.scale;
 
@@ -2918,8 +3337,19 @@
       }, this);
     }
 
-    document.addEventListener("click", setDirectionPoint);
-    document.addEventListener("tap", setDirectionPoint);
+    function setDirectionPointMouse(event) {
+      event.preventDefault();
+      const rect = event.target.getBoundingClientRect();
+      mr.mouse = mr.mouse || {};
+      mr.mouse.x = event.clientX - rect.left;
+      mr.mouse.y = event.clientY - rect.top;
+    }
+
+    canvas.addEventListener("contextmenu", setDirectionPoint);
+    canvas.addEventListener("click", setDirectionPoint);
+    canvas.addEventListener("tap", setDirectionPoint);
+
+    // document.addEventListener("mousemove", setDirectionPointMouse);
 
     const pinchZoom = (imageElement) => {
       let imageElementScale = 1, o;
@@ -2988,5 +3418,115 @@
       });
     }
     pinchZoom(canvas);
+
+
+    function drawParams(obj) {
+      function addInput(lbl, key, el) {
+          const inp = document.createElement('input');
+          inp.type = "number";
+          if (key == "type" || key == "coloring" || key == "cracks")inp.step = 1;
+          else inp.step=0.1;
+          if (typeof(el)!="undefined") {
+            inp.value = obj.params[key][el];
+          } else {
+            inp.value = obj.params[key];
+          }
+          if (typeof(el)!="undefined") {
+            inp.addEventListener('change', (event) => {
+                obj.params[key][el] = event.target.value;
+                if (typeof obj.generateTex == "function")
+                  obj.generateTex();
+            });
+          } else {
+            inp.addEventListener('change', (event) => {
+                obj.params[key] = event.target.value;
+                if (typeof obj.generateTex == "function")
+                  obj.generateTex();
+            });
+          }
+
+          lbl.appendChild(inp);
+      }
+      const panel = document.querySelector("#panel");
+      panel.textContent = "";
+      const name = document.createElement('h2');
+      name.textContent = obj.name;
+      panel.appendChild(name); 
+      let label = document.querySelector("#label");
+      if (obj instanceof Sun) label.textContent = "☀️";
+      else if (obj instanceof BlackHole) label.textContent = "⚫";
+      else if (obj instanceof Planet){
+        if (obj.rings) label.textContent = "🪐";
+        else label.textContent = "🌎"; 
+      } 
+      label.textContent += obj.name;
+
+      for (let key in obj.params) {
+        if (key == "lightdirection" || key == "rotation" || key == "lightcolor" || 
+            key == "accretion" || key == "s_position" || key == "s_scale" || key == "frame") continue;
+        
+        const value = obj.params[key];
+        if (value instanceof WebGLTexture) continue;
+        const lbl = document.createElement('label');
+        lbl.textContent = key;
+        panel.appendChild(lbl); 
+        if (Array.isArray(value)) {
+          for(el in value) {
+            addInput(lbl, key, el);
+          }
+        } else {
+          addInput(lbl, key);
+        }
+
+      }
+    }
+    function clearParams() {
+      let panel = document.querySelector("#panel");
+      panel.textContent = "";
+      let label = document.querySelector("#label");
+      label.textContent = "";
+    }
+
+    function genName(random) {
+      planets = [
+        "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","eris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-liet","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-ebe","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","ali-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-ula","si-ri-us","spica","thu-ban","ve-ga"
+      ];
+  
+      if (!window.names) {
+        window.names = {
+          syllables: []
+        }
+      
+        for (let planet of planets) {
+          for (let syllable of planet.split("-")) {
+            if (!window.names.syllables.includes(syllable)) {
+              window.names.syllables.push(syllable);
+            }
+          }
+        }
+
+        window.names.freq = new Array(window.names.syllables.length+1).fill(null).map(() => new Array(window.names.syllables.length+1).fill(0));
+        for (let planet of planets) {
+          const lex = planet.split("-");
+          for (let i=0; i < lex.length - 1; ++i) {
+            window.names.freq[window.names.syllables.indexOf(lex[i])][window.names.syllables.indexOf(lex[i+1])]++;
+          }
+          window.names.freq[window.names.syllables.indexOf(lex[lex.length - 1])][window.names.syllables.length] += 1
+        }
+      }
+
+      let planet_name = "";
+      length = Math.max(Math.floor(random.gauss(2.5, 0.5)), 1);
+      initial = Math.floor(random.range(0, window.names.syllables.length-1));
+      while (length > 0) {
+        while (!(window.names.freq[initial].includes(1))) {
+          initial = Math.floor(random.range(0, window.names.syllables.length-1));
+        }   
+        planet_name += window.names.syllables[initial];
+        initial = window.names.freq[initial].indexOf(1);
+        length--;
+      }
+      return (planet_name.charAt(0).toUpperCase() + planet_name.slice(1));
+    }
   </script>
 </html>
