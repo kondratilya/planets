@@ -1,6 +1,7 @@
 # planets!
 
 Controls:
+
 	Arrows or WASD - fly
 	"+"/"-", "Pinch" - zoom in / zoom out
 	"Space" - fire weapon
