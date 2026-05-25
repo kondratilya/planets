@@ -1337,10 +1337,12 @@
       class Markov {
         constructor(random) {
           this.planets = [
-            "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","eris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-liet","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","ali-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-ula","si-ri-us","spica","thu-ban","ve-ga", "ni-bi-ru",
+            "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","e-ris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","pho-bos","de-i-mos","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-li-et","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","a-li-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-u-la","si-ri-us","spica","thu-ban","ve-ga", "ni-bi-ru",
           ];
           this.random = random;
           this.chain = {"":[]};
+          this.allNames = new Set();
+          this.allNumbers = new Set();
         }
         train() {
           let syllables = [];
@@ -1362,14 +1364,32 @@
         generate() {
           this.train();
           this.train = ()=>{};
-          let current = this.random.choice(this.chain[""]);
-          let result = (current.charAt(0).toUpperCase() + current.slice(1));
-          while (true) {
-            current = this.random.choice(this.chain[current]);
-            if (current == '.') break;
-            result += current;
-          }
+          let result;
+          do {
+            let current = this.random.choice(this.chain[""]);
+            result = (current.charAt(0).toUpperCase() + current.slice(1));
+            while (true) {
+              current = this.random.choice(this.chain[current]);
+              if (current == '.') break;
+              result += current;
+            }
+          } while(this.allNames.has(result));
+          this.allNames.add(result);
           return result;
+        }
+        generateNumber() {
+          let result;
+          do {
+            result = +this.random.randS().slice(0, this.random.range(3, 6));
+          } while(this.allNumbers.has(result));
+          this.allNumbers.add(result);
+          return result;
+        }
+        generateAsteroid() {
+          if (this.random.rand() < 0.1) {
+            return this.generateNumber() + " " + this.generate();
+          }
+          return "Asteroid-"+this.generateNumber();
         }
       }
 
@@ -1769,7 +1789,6 @@
           if (this.parent) {
             this.parent.addSatelite(this);
           }
-          this.name = world.names.generate();
         }
         roll(){
           if (this.sets)
@@ -2111,6 +2130,7 @@
           if (this.random.rand() < 0.3 && radius > 100) {
             this.generateRings();
           }
+          this.name = this.world.names.generate();
         }
         roll(){
           super.roll();
@@ -2211,6 +2231,7 @@
           this.drawRadius = this.radius;
           this.radius /= this.params.shiny[0]+1;
           this.program = this.renderer.programs.sun;
+          this.name = this.world.names.generate();
         }
         roll() {
           super.roll();
@@ -2243,6 +2264,7 @@
           this.radius = this.drawRadius * this.params.radius/2;
           if (this.params.accretion)
             this.program = this.renderer.programs['black-hole-accretion'];
+          this.name = this.world.names.generate();
         }
         roll() {
           super.roll();
@@ -2273,6 +2295,7 @@
                 this.params.width,
               );
           }
+          this.name = this.world.names.generate() + " belt";
         }
         gravitateOne(obj) {
           return;
@@ -2300,6 +2323,7 @@
           this.roll();
           this.generateTex();
           this.program = this.renderer.programs.asteroid;
+          this.name = this.world.names.generateAsteroid();
         }
         roll() {
           super.roll();
