@@ -1334,6 +1334,45 @@
         }
       }
 
+      class Markov {
+        constructor(random) {
+          this.planets = [
+            "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","eris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-liet","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","ali-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-ula","si-ri-us","spica","thu-ban","ve-ga", "ni-bi-ru",
+          ];
+          this.random = random;
+          this.chain = {"":[]};
+        }
+        train() {
+          let syllables = [];
+          for (let planet of this.planets) {
+            let sylls = planet.split("-");
+            this.chain[""].push(sylls[0]);
+            syllables.push(...sylls);
+            syllables.push('.');
+          }
+          for (let i = 0; i < syllables.length - 1; i++) {
+            const current = syllables[i];
+            if (current == ".") continue;
+            if (!this.chain[current]) {
+              this.chain[current] = [];
+            }
+            this.chain[current].push(syllables[i + 1]);
+          }
+        }
+        generate() {
+          this.train();
+          this.train = ()=>{};
+          let current = this.random.choice(this.chain[""]);
+          let result = (current.charAt(0).toUpperCase() + current.slice(1));
+          while (true) {
+            current = this.random.choice(this.chain[current]);
+            if (current == '.') break;
+            result += current;
+          }
+          return result;
+        }
+      }
+
       class Program {
         static defines(text, params) {
           for (let param in params || []) {
@@ -1730,7 +1769,7 @@
           if (this.parent) {
             this.parent.addSatelite(this);
           }
-          this.name = genName(random);
+          this.name = world.names.generate();
         }
         roll(){
           if (this.sets)
@@ -1934,6 +1973,7 @@
             glow: {
               mean: 2.5, dev: 3, max: 5
             },
+            waterlevel: 0.5,
             atmosphere: 1,
             craters: -1,
             bumpy: 0,
@@ -2075,7 +2115,6 @@
         roll(){
           super.roll();
           this.params.lightcolor = this.systemParent().light;
-          this.program = this.renderer.programs[`planet${this.params.atmosphere}${this.params.coloring}`];
         }
         drawOne(trans) {
           this.params.lightdirection = lightdirection(this.pos, Math.PI+this.rotation);
@@ -2118,22 +2157,25 @@
           }
         }
         generateRings() {
-          let r1 = this.random.range(1.1, 2);
-          let r2 = r1 + this.random.range(0.5, 2);
-          let luminocity = this.random.range(0.5, 0.8);
-          this.rings = {
-            exc: this.random.range(0.05, 0.2),
-            size: r2,
-            innerradius: r1/r2,
-            random: this.random.rand()*1000,
-            color: [luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1)],
-            transparency: this.random.range(0.1, 0.2),
-          };
+          if (!this.rings) {
+            let r1 = this.random.range(1.1, 2);
+            let r2 = r1 + this.random.range(0.5, 2);
+            let luminocity = this.random.range(0.5, 0.8);
+            this.rings = {
+              exc: this.random.range(0.05, 0.2),
+              size: r2,
+              innerradius: r1/r2,
+              random: this.random.rand()*1000,
+              color: [luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1), luminocity+this.random.gauss(0.2, 0.1)],
+              transparency: this.random.range(0.1, 0.2),
+            };
+          }
           this.rings.image = this.renderer.useProgram('rings-texture').texture(this.rings, 1024, {MIN_FILTER: this.world.renderer.gl.LINEAR_MIPMAP_LINEAR});
         }
         generateTex() {
+          this.program = this.renderer.programs[`planet${Math.abs(Math.floor(this.params.atmosphere))%2}${Math.abs(Math.floor(this.params.coloring))%3}`];
           this.params.image = this.renderer.useProgram('planet-texture').setPositions('planet-texture').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
-          if (this.params.atmosphere) {
+          if (!!this.params.atmosphere) {
             this.params.cloudmap = this.renderer.useProgram('planet-cloudmap').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
           }else {
             this.params.cloudmap = null;
@@ -2634,15 +2676,6 @@
           this.pos = new Point(pos);
           this.rand = this.random.rand()*1000;
         }
-        // die() {
-        //   this.fuel = 0;
-        //   this.dead=-100;
-        //   this.collide = ()=>{};
-        //   this.explode = ()=>{};
-        // }
-        // get dead() {
-        //   return this.dead
-        // }
       }
 
       class Rocket extends EnemyOrWeapon {
@@ -2917,6 +2950,7 @@
           renderer.createPositions('flame', [-1,0, 1,0, -1,2, 1,2]);
 
           this.setRandom(getParam('id'));
+          this.names = new Markov(this.random);
           this.genarateStars();
           this.genaratePlanets();
 
@@ -3419,39 +3453,7 @@
     }
     pinchZoom(canvas);
 
-
-    function drawParams(obj) {
-      function addInput(lbl, key, el) {
-          const inp = document.createElement('input');
-          inp.type = "number";
-          if (key == "type" || key == "coloring" || key == "cracks")inp.step = 1;
-          else inp.step=0.1;
-          if (typeof(el)!="undefined") {
-            inp.value = obj.params[key][el];
-          } else {
-            inp.value = obj.params[key];
-          }
-          if (typeof(el)!="undefined") {
-            inp.addEventListener('change', (event) => {
-                obj.params[key][el] = event.target.value;
-                if (typeof obj.generateTex == "function")
-                  obj.generateTex();
-            });
-          } else {
-            inp.addEventListener('change', (event) => {
-                obj.params[key] = event.target.value;
-                if (typeof obj.generateTex == "function")
-                  obj.generateTex();
-            });
-          }
-
-          lbl.appendChild(inp);
-      }
-      const panel = document.querySelector("#panel");
-      panel.textContent = "";
-      const name = document.createElement('h2');
-      name.textContent = obj.name;
-      panel.appendChild(name); 
+    function nameLabel(obj) {
       let label = document.querySelector("#label");
       if (obj instanceof Sun) label.textContent = "☀️";
       else if (obj instanceof BlackHole) label.textContent = "⚫";
@@ -3460,6 +3462,63 @@
         else label.textContent = "🌎"; 
       } 
       label.textContent += obj.name;
+    }
+
+    function drawParams(obj) {
+      function addInput(lbl, key, el) {
+          const inp = document.createElement('input');
+          inp.type = "number";
+          if (key == "type" || key == "coloring" || key == "atmosphere" || key == "cracks")inp.step = 1;
+          else inp.step=0.1;
+          if (typeof(el)!="undefined") {
+            inp.value = obj.params[key][el];
+          } else {
+            inp.value = obj.params[key];
+          }
+          
+          inp.addEventListener('change', (event) => {
+            if (typeof(el)!="undefined") {
+              obj.params[key][el] = event.target.value;
+            } else {
+              obj.params[key] = event.target.value;  
+            }
+            if (typeof obj.generateTex == "function")
+              obj.generateTex();
+          });
+
+          lbl.appendChild(inp);
+      }
+      function addInputRings(lbl, key, el) {
+          const inp = document.createElement('input');
+          inp.type = "number";
+          inp.step=0.1;
+          if (typeof(el)!="undefined") {
+            inp.value = obj.rings[key][el];
+          } else {
+            inp.value = obj.rings[key];
+          }
+          
+          inp.addEventListener('change', (event) => {
+            if (typeof(el)!="undefined") {
+              obj.rings[key][el] = event.target.value;
+            } else {
+              obj.rings[key] = event.target.value;  
+            }
+            obj.generateRings();
+          });
+          lbl.appendChild(inp);
+      }
+      const panel = document.querySelector("#panel");
+      panel.textContent = "";
+      const name = document.createElement('input');
+      name.style = "font-size: 1.5em;margin-block: 0.83em;font-weight: bold;border: none;";
+      name.addEventListener('change', (event) => {
+        obj.name = event.target.value;
+        nameLabel(obj);
+      });
+      name.value = obj.name;
+      panel.appendChild(name); 
+      nameLabel(obj);
 
       for (let key in obj.params) {
         if (key == "lightdirection" || key == "rotation" || key == "lightcolor" || 
@@ -3467,6 +3526,7 @@
         
         const value = obj.params[key];
         if (value instanceof WebGLTexture) continue;
+        if (value == null) continue;
         const lbl = document.createElement('label');
         lbl.textContent = key;
         panel.appendChild(lbl); 
@@ -3477,7 +3537,44 @@
         } else {
           addInput(lbl, key);
         }
-
+      }
+      if (obj instanceof Planet) {
+        const rings = document.createElement('h3');
+        rings.textContent = "Rings";
+        panel.appendChild(rings);
+        const ringsButton = document.createElement('button');
+        if (obj.rings) {
+          ringsButton.textContent = "Remove";
+          ringsButton.addEventListener('click', (event) => {
+            delete obj.rings;
+            drawParams(obj);
+          });
+          panel.appendChild(ringsButton);
+          for (let key in obj.rings) {
+            if (key == "bf") continue;
+            
+            const value = obj.rings[key];
+            if (value instanceof WebGLTexture) continue;
+            if (value == null) continue;
+            const lbl = document.createElement('label');
+            lbl.textContent = key;
+            panel.appendChild(lbl); 
+            if (Array.isArray(value)) {
+              for(el in value) {
+                addInputRings(lbl, key, el);
+              }
+            } else {
+              addInputRings(lbl, key);
+            }
+          }
+        } else {
+          ringsButton.textContent = "Generate";
+          ringsButton.addEventListener('click', (event) => {
+            obj.generateRings();
+            drawParams(obj);
+          });
+          panel.appendChild(ringsButton);
+        }
       }
     }
     function clearParams() {
@@ -3485,48 +3582,6 @@
       panel.textContent = "";
       let label = document.querySelector("#label");
       label.textContent = "";
-    }
-
-    function genName(random) {
-      planets = [
-        "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","eris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-liet","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-ebe","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","ali-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-ula","si-ri-us","spica","thu-ban","ve-ga"
-      ];
-  
-      if (!window.names) {
-        window.names = {
-          syllables: []
-        }
-      
-        for (let planet of planets) {
-          for (let syllable of planet.split("-")) {
-            if (!window.names.syllables.includes(syllable)) {
-              window.names.syllables.push(syllable);
-            }
-          }
-        }
-
-        window.names.freq = new Array(window.names.syllables.length+1).fill(null).map(() => new Array(window.names.syllables.length+1).fill(0));
-        for (let planet of planets) {
-          const lex = planet.split("-");
-          for (let i=0; i < lex.length - 1; ++i) {
-            window.names.freq[window.names.syllables.indexOf(lex[i])][window.names.syllables.indexOf(lex[i+1])]++;
-          }
-          window.names.freq[window.names.syllables.indexOf(lex[lex.length - 1])][window.names.syllables.length] += 1
-        }
-      }
-
-      let planet_name = "";
-      length = Math.max(Math.floor(random.gauss(2.5, 0.5)), 1);
-      initial = Math.floor(random.range(0, window.names.syllables.length-1));
-      while (length > 0) {
-        while (!(window.names.freq[initial].includes(1))) {
-          initial = Math.floor(random.range(0, window.names.syllables.length-1));
-        }   
-        planet_name += window.names.syllables[initial];
-        initial = window.names.freq[initial].indexOf(1);
-        length--;
-      }
-      return (planet_name.charAt(0).toUpperCase() + planet_name.slice(1));
     }
   </script>
 </html>
