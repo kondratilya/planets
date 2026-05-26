@@ -585,13 +585,8 @@
 
       void main() {
         float r = noize_harm(vec3(v_rpos, u_random), noize);
-
         float lengthSq2 = v_rpos.x*v_rpos.x + v_rpos.y*v_rpos.y;
-        if (lengthSq2 < 0.5 + r/2.0) {
-          gl_FragColor = vec4(r, sqrt(2.0 - lengthSq2), 0, 1);
-        } else {
-          discard;
-        }
+        gl_FragColor = vec4(r, sqrt(2.0 - lengthSq2), smoothstep(0., 0.1, (0.5 + r/2.0) - lengthSq2), 1);
       }
     </script>
     
@@ -606,15 +601,11 @@
 
       void main() {
         vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
-        if (tex.w > 0.) {
-          float light = dot(
-            normalize(vec3(v_rpos, tex.y)),
-            normalize(u_lightdirection)
-          );
-          gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), 1);
-        } else {
-          discard;
-        }
+        float light = dot(
+          normalize(vec3(v_rpos, tex.y)),
+          normalize(u_lightdirection)
+        );
+        gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), tex.z);
       }
     </script>
 
@@ -1146,6 +1137,14 @@
       uniform float u_frame;
       uniform vec3 u_lightdirection;
       uniform float u_opacity;
+      uniform float u_ribs;
+      uniform vec3 u_cockpitcolor;
+      uniform float u_top;
+      uniform float u_cockpit;
+      uniform float u_windows;
+      uniform float u_windowssize;
+      uniform vec3 u_windowscolor;
+      uniform vec3 u_detailscolor;
 
       float specular(vec3 normal) {
         const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
@@ -1157,24 +1156,23 @@
         float l = length(v_rpos);
         if (l<1.) {
           float a = atan(v_rpos.y, v_rpos.x);
-          vec3 body = vec3(v_rpos*smoothstep(0.4,0.6,l)/2., sqrt(1.0 - pow(l, 2.)))*2.;
-          vec3 cockpit = vec3(v_rpos*4., sqrt(1.0 - pow(l, 2.)));
-          vec3 normal = mix(body, cockpit, smoothstep(0.6,0.8,1.-l));
+          float l1 = sqrt(1.0 - pow(l, 2.));
+          vec3 body = vec3(v_rpos*smoothstep(0.4,0.6,l)/2., l1)*2.;
+          vec2 ribs = vec2((cos(a*SIDES)+1.)*u_ribs, (sin(a*SIDES)+1.)*u_ribs);
+          body.xy += ribs;
+          vec3 cockpit = vec3(v_rpos*4., l1);
+          vec3 normal = mix(body, cockpit, smoothstep(u_top,u_top-0.1,l));
           normal = normalize(normal);
 
           vec3 color = u_color;
-          // float windows = smoothstep(0.6, 0.61, l) * smoothstep(0.91, 0.90, l);
-          // windows *= smoothstep(0.15, 0.16, abs(cos(a*4.)));
-          // color = mix(color, vec3(1,1,0), windows);
+          color = mix(u_color, u_detailscolor, smoothstep(u_cockpit,u_cockpit-0.05,l));
+          color = mix(color, u_cockpitcolor, smoothstep(u_cockpit-0.05,u_cockpit-0.1,l));
 
-          for (float i=0.; i<M_PI*2.; i+=M_PI*2./8.) {
-            vec2 window = vec2(cos(i)*0.7, sin(i)*0.7);
-            color = mix(vec3(0.3,0.3,0.3), color, smoothstep(0.1, 0.11, distance(v_rpos, window) ));
+          for (float i=0.; i<M_PI*2.; i+=M_PI*2./SIDES) {
+            vec2 window = vec2(cos(i)*u_windows, sin(i)*u_windows);
+            color = mix(u_detailscolor, color, smoothstep(u_windowssize, u_windowssize+0.01, distance(v_rpos, window) ));
             float l = floor(N2(vec2(i, floor(u_frame/10.))) + 0.5);
-            color = color * l + mix(vec3(1,1,0), color, smoothstep(0.07, 0.08, distance(v_rpos, window) )) * (1.-l);
-            //if (N2(vec2(i, floor(u_frame/10.)))>0.5) {
-            //color = mix(vec3(1,1,0), color, smoothstep(0.07, 0.08, distance(v_rpos, window) ));
-            //}
+            color = color * l + mix(u_windowscolor, color, smoothstep(u_windowssize-0.03, u_windowssize-0.02, distance(v_rpos, window) )) * (1.-l);
           }
 
           float light = dot(
@@ -1578,13 +1576,28 @@
           return this;
         }
         createPositions(name, positions) {
-          this.positionslist[name] = new Float32Array(positions);
+          let pos = {
+            vertices:new Float32Array(positions),
+            x1: positions[0],
+            x2: positions[0],
+            y1: positions[1],
+            y2: positions[1],
+          };
+          for (let i=2; i<positions.length; i+=2) {
+            if (positions[i]<pos.x1)pos.x1 = positions[i];
+            if (positions[i]>pos.x2)pos.x2 = positions[i];
+            if (positions[i+1]<pos.y1)pos.y1 = positions[i+1];
+            if (positions[i+1]>pos.y2)pos.y2 = positions[i+1];
+          }
+          pos.w = pos.x2-pos.x1;
+          pos.h = pos.y2-pos.y1;
+          this.positionslist[name] = pos;
         }
         setPositions(positions) {
           positions = this.positionslist[positions || 'default'];
           this.positions = positions;
-          this.gl.bufferData(this.gl.ARRAY_BUFFER, positions, this.gl.STATIC_DRAW);
-          this.count = Math.floor(positions.length/2);
+          this.gl.bufferData(this.gl.ARRAY_BUFFER, positions.vertices, this.gl.STATIC_DRAW);
+          this.count = Math.floor(positions.vertices.length/2);
           return this;
         }
         clear() {
@@ -1593,11 +1606,13 @@
         render(params, x, y, w, h, a) {
           if (!this.program) return;
           if (typeof a == 'undefined') { a = h; h = w;}
-          this.program.setParams(Object.assign({position: [x, y], scale: [w || 1, h || w], angle: a || 0}, params));
-          // params.position = params.position || [x,y];
-          // params.scale = params.scale || [w,a?h:(h||w)];
-          // params.angle = a || 0;
-          this.program.setParams(params);
+          w = w || 1;
+          h = h || w;
+          if (x + this.positions.x2*w < 0) return;
+          if (y + this.positions.y2*h < 0) return;
+          if (x + this.positions.x1*w > this.gl.canvas.width) return;
+          if (y + this.positions.y1*h > this.gl.canvas.height) return;
+          this.program.setParams(Object.assign({position: [x, y], scale: [w, h], angle: a || 0}, params));
           this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.count || 4);
         }
         texture(params, resolution, texParams) {
@@ -1613,18 +1628,7 @@
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, texParams['WRAP'] || gl.REPEAT);
           gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
           gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, targetTexture, 0);
-          let box = {};
-          for (let i=0; i<this.positions.length; ++i){
-            if (!(i % 2)) {
-              if (typeof(box.x1)=='undefined' || this.positions[i] < box.x1) box.x1 = this.positions[i];
-              if (typeof(box.x2)=='undefined' || this.positions[i] > box.x2) box.x2 = this.positions[i];
-            } else {
-              if (typeof(box.y1)=='undefined' || this.positions[i] < box.y1) box.y1 = this.positions[i];
-              if (typeof(box.y2)=='undefined' || this.positions[i] > box.y2) box.y2 = this.positions[i];
-            }
-          }
-          box.w = box.x2-box.x1;
-          box.h = box.y2-box.y1;
+          let box = this.positions;
           gl.viewport(0, 0, resolution, resolution);
           gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), resolution, resolution);
           this.render(params, resolution*(-box.x1/box.w), resolution*(-box.y1/box.h), resolution/box.w, resolution/box.h, 0);
@@ -1636,13 +1640,17 @@
           return targetTexture;
         }
         renderTo(texture, resolution, params, x, y, s, s1, a) {
+          if (!this.program) return;
           const gl = this.gl;
           if (typeof(resolution)!='object') resolution=[resolution, resolution];
           gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb);
           gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
           gl.viewport(0, 0, resolution[0], resolution[1]);
           gl.uniform2f(gl.getUniformLocation(this.program.program, "u_resolution"), resolution[0], resolution[1]);
-          this.render(params, x, y, s, s1, a);
+          if (typeof a == 'undefined') { a = h; h = w;}
+          s = s || 1; s1 = s1 || s;
+          this.program.setParams(Object.assign({position: [x, y], scale: [s, s1], angle: a || 0}, params));
+          this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.count || 4);
           gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         }
@@ -2390,10 +2398,12 @@
             set d(x) { if(!!x!=!!this.d)this._d = x?this.d0:false;this.enable(x); },
             set l(x) { if(!!x!=!!this.l)this._l = x?this.l0:false;this.enable(x); },
             set r(x) { if(!!x!=!!this.r)this._r = x?this.r0:false;this.enable(x); },
+            set fire(x) { this._fire = x;this.enable(x); },
             get u() { return this._u; },
             get d() { return this._d; },
             get l() { return this._l; },
             get r() { return this._r; },
+            get fire() { return this._fire; },
             move() {
               if (this._u)this._u = Math.min(1, this._u+this.du);
               if (this._d)this._d = Math.min(1, this._d+this.dd);
@@ -2427,6 +2437,7 @@
             steering: 0.1,
             planetSteering: 20,
           };
+          this.firetime = 0;
           this.weapons = [this.fireRocket, this.fireLaser, this.fireLaser3]
           this.switchWeapons();
         }
@@ -2461,6 +2472,12 @@
             const speed = 1000;
             this.pos.sub((this.thrust.l||0-this.thrust.r||0) * speed * fraction, (this.thrust.u||0-this.thrust.d||0) * speed * fraction);
             return;
+          }
+
+          this.a %= Math.PI*2;
+
+          if (this.thrust.fire) {
+            this.fireWeapon();
           }
 
           this.world.sun.gravitate(this);
@@ -2594,8 +2611,7 @@
             this.dp.mul(0.95);
           }
 
-          // console.log(this.thrust.lastInput);
-          if (!this.thrust.on && !this.onPlanet && this.world.frame-this.thrust.lastInput > 60) {
+          if (!this.thrust.on && !this.thrust.fire && !this.onPlanet && this.world.frame-this.thrust.lastInput > 60) {
             let mod = (a, n) => (a % n + n) % n;
             let ga = this.gdp.ang();
             if (this.pos.len() > 10000)
@@ -2612,7 +2628,7 @@
           if(this.hidden) return;
           const scaledPos = this.pos.scaled(this.world.trans);
           const scale = this.world.game?this.world.trans.scale:1;
-          let t, a = this.a;
+          let t, a = this.a;// % (Math.PI*2);
 
           if (this.thrust.on && !this.onPlanet) {
             this.world.renderer.setPositions('flame').useProgram('flame');
@@ -2656,7 +2672,15 @@
           this.dp.set(0,0);
         }
 
+        checkFireTime(interval) {
+          if ((this.world.frame - this.firetime) < interval) return false;
+          this.firetime = this.world.frame;
+          return true;
+        }
+
         fireRocket() {
+          if (!this.checkFireTime(10)) return;
+          this.firetime = this.world.frame;
           const startPos = Point.fromPos(this.pos).add(Point.fromPolar(this.a, 100));
           const rocket = new Rocket(this.world, startPos, this.a+Math.PI, 0.44, 100);
           rocket.dp.add(this.dp);
@@ -2664,6 +2688,7 @@
         }
 
         fireLaser() {
+          if (!this.checkFireTime(0.2)) return;
           this.laserSide = -(this.laserSide||1);
           const startPos = Point.fromPos(this.pos);
           startPos.add(Point.fromPolar(this.a+Math.PI/2*this.laserSide, this.radius*this.shaderParams.wingtipspos*this.shaderParams.wing1[0]));
@@ -2674,6 +2699,7 @@
         }
 
         fireLaser3() {
+          if (!this.checkFireTime(10)) return;
           this.laserSide = -(this.laserSide||1);
           const startPos = Point.fromPos(this.pos);
           startPos.add(Point.fromPolar(this.a+Math.PI/2*this.laserSide, this.radius*this.shaderParams.wingtipspos*this.shaderParams.wing1[0]));
@@ -2689,6 +2715,7 @@
         }
 
         switchWeapons() {
+          this.firetime = 0;
           const i = (this.weapons.indexOf(this.weapon)+1) % this.weapons.length;
           this.weapon = this.weapons[i];
         }
@@ -2845,11 +2872,36 @@
         constructor(world, pos) {
           super(world, pos);
           this.a = 0;
-          this.radius = this.self_radius = this.random.gauss(100, 10);
+          this.self_radius = this.random.gauss(100, 10);
+          this.radius = 0;
           this.gdp = new Point();
           this.dp = new Point();
           this.frame = 0;
           this.rotation = this.random.gauss(0.0, 0.02);
+          this.params = {
+            color:[this.random.rand(), this.random.rand(), this.random.rand()], 
+            cockpitcolor: [0.5, 0.7, 1], 
+            top:this.random.range(0.2, 0.8), 
+            cockpit:this.random.range(-0.2, 0.5),
+            ribs:1/this.random.range(5,10),
+            opacity:1,
+            detailscolor:[0.2, 0.3, 0.3],
+            windowscolor:[1, 0.9, 0.2],
+            windows: this.random.range(0.2, 1),
+            windowssize: 1/this.random.range(8, 15),
+            random:this.rand
+          };
+          if (this.params.cockpit < 0.2)this.params.cockpit = 0;
+          this.params.cockpit = Math.min(this.params.cockpit, this.params.top);
+          if (this.params.windows < this.params.top){
+            this.params.windows = (this.params.top+0.9)/2;
+            this.params.windowssize = Math.min(this.params.windowssize, (0.9-this.params.top)/2);
+          } else if(this.params.windows > this.params.cockpit) {
+            this.params.windows = (this.params.top+this.params.cockpit)/2;
+            this.params.windowssize = Math.min(this.params.windowssize, (this.params.top-this.params.cockpit)/2);
+          } else this.params.windows = 10;
+          if(this.params.windowssize < 0.05)this.params.windows = 10;
+          if(this.params.windows < 0.2)this.params.windows = 10;
         }
         collide(obj, dp){
           if (obj instanceof Enemy) return;
@@ -2901,9 +2953,11 @@
         draw() {
           const scaledPos = this.scaledPos;
           const expl = Math.max(0, Math.abs(this.dead||-100)-50)/50;
-          const lightdir = lightdirection(this.pos, Math.PI/2-this.a);
 
-          this.renderer.useProgram('ufo').render({color:[0.5, 0.5, 0.5], lightdirection:lightdir, frame:this.frame, random:this.rand, opacity:(-this.dead||100)/100}, scaledPos.x, scaledPos.y, this.radius*expl*this.world.trans.scale, this.radius*expl*this.world.trans.scale, -this.a-Math.PI/2);
+          this.params.lightdirection = lightdirection(this.pos, Math.PI/2-this.a);
+          this.params.frame = this.frame;
+          this.params.opacity = (-this.dead||100)/100;
+          this.renderer.useProgram('ufo').render(this.params, scaledPos.x, scaledPos.y, this.radius*expl*this.world.trans.scale, this.radius*expl*this.world.trans.scale, -this.a-Math.PI/2);
 
           if (this.dead && !this.is_landing) {
             this.renderer.useProgram('explosion').render({frame:100+this.dead, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*2*this.world.trans.scale, this.radius*2*this.world.trans.scale, -this.a-Math.PI/2);
@@ -2959,7 +3013,7 @@
           new Program(renderer, "laser", "#vertex-shader-rings", "#fragment-shader-laser");
           new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
           new Program(renderer, "explosion", "#vertex-shader-2d", "#fragment-shader-explosion");
-          new Program(renderer, "ufo", "#vertex-shader-2d", "#fragment-shader-ufo");
+          new Program(renderer, "ufo", "#vertex-shader-2d", "#fragment-shader-ufo", {SIDES: "6."});
 
           const orbitPositions = [];
           const w = 0.01, w2 = 1-w, w1 = 1+w;
@@ -3108,9 +3162,21 @@
 
         // this.renderer.useProgram('explosion').render({frame:(this.frame*2)%100, random:Math.floor(this.frame/100)*10, intensivity:2}, 200, 500, 100);
         // const lightdir = lightdirection(new Point(Math.cos(this.frame/100),Math.sin(this.frame/100)), Math.PI/2+this.a);
-
-        //for (let i=0;i<1000;++i)
-        // this.renderer.useProgram('ufo').render({lightdirection:lightdir, frame:this.frame, color:[(Math.sin(this.frame/100)+1)/2, (Math.sin(this.frame/300)+1)/2, (Math.sin(this.frame/500)+1)/2]}, 200, 500, 100, 100, this.frame/200);
+        // for (let i=0;i<1000;++i)
+        // this.renderer.useProgram('ufo').render({
+        //     lightdirection:lightdir, 
+        //     frame:this.frame, 
+        //     color:[(Math.sin(this.frame/100)+1)/2, (Math.sin(this.frame/300)+1)/2, (Math.sin(this.frame/500)+1)/2], 
+        //     cockpitcolor: [0.5, 0.7, 1], 
+        //     top:0.6, 
+        //     cockpit:0.3,
+        //     ribs:0.2,
+        //     opacity:1,
+        //     detailscolor:[0.2, 0.3, 0.3],
+        //     windowscolor:[1, 0.9, 0.2],
+        //     windows: 0.7,
+        //     windowssize: 0.1,
+        //   }, 200, 200, 100, 100, this.frame/200);
       }
 
       MovingRect.prototype.drawPlanets = function() {
@@ -3156,7 +3222,13 @@
           }
           rocket.move(fraction);
         }
-        this.rockets = this.rockets.filter((rocket)=>{return !(rocket.dead>=0);});
+        const far = 10000;
+        this.rockets = this.rockets.filter((rocket)=>{
+          let farFromMan = Math.abs(rocket.pos.x - this.man.pos.x) > far || Math.abs(rocket.pos.y - this.man.pos.y) > far;
+          let farFromCenter = Math.abs(rocket.pos.x) > far || Math.abs(rocket.pos.y) > far;
+          if (farFromMan && farFromCenter) return false;
+          return !(rocket.dead>=0);
+        });
 
         if (this.random.rand() < 0.001*fraction) {
           this.spawnUfo();
@@ -3279,6 +3351,7 @@
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = true; mr.man.targetPos=false; break;
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = true; mr.man.targetPos=false; break;
         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = true; mr.man.targetPos=false; break;
+        case 'Space': mr.man.thrust.fire=true; break;
         case 'NumpadAdd': case 'Equal': mr.scale = (mr.man&&mr.man.hidden) ? 0.6 : 0.4; break;
         case 'NumpadSubtract': case 'Minus': mr.scale = 0.05; break;
       }
@@ -3295,7 +3368,7 @@
         case 'ArrowUp': case 'KeyW': mr.man.thrust.u = false; break;
         case 'ArrowLeft': case 'KeyA': mr.man.thrust.l = false; break;
         case 'ArrowRight': case 'KeyD': mr.man.thrust.r = false; break;
-        case 'Space': mr.man.fireWeapon(mr);mr.man.thrust.enable(); break;
+        case 'Space': mr.man.thrust.fire=false; break;
         case 'NumpadAdd': case 'Equal':
         case 'NumpadSubtract': case 'Minus': mr.scale = false; break;
         case 'KeyQ': mr.man.switchWeapons(); break;
@@ -3477,17 +3550,20 @@
     }
     pinchZoom(canvas);
 
+    function emojiName(obj) {
+      let result = "";
+      if (obj instanceof Sun) result = "☀️";
+      else if (obj instanceof BlackHole) result = "⚫";
+      else if (obj instanceof Planet){
+        if (obj.rings) result = "🪐";
+        else result = "🌎"; 
+      }
+      return (result + obj.name);
+    }
     function nameLabel(obj) {
       let label = document.querySelector("#label");
-      if (obj instanceof Sun) label.textContent = "☀️";
-      else if (obj instanceof BlackHole) label.textContent = "⚫";
-      else if (obj instanceof Planet){
-        if (obj.rings) label.textContent = "🪐";
-        else label.textContent = "🌎"; 
-      } 
-      label.textContent += obj.name;
+      label.textContent = emojiName(obj);
     }
-
     function drawParams(obj) {
       function addInput(lbl, key, el) {
           const inp = document.createElement('input');
@@ -3532,6 +3608,32 @@
           });
           lbl.appendChild(inp);
       }
+      function addInputOrbit(lbl, key, el) {
+          const inp = document.createElement('input');
+          inp.type = "number";
+          if (key == "radius")inp.step = 100;
+          else inp.step=0.001;
+          if (typeof(el)!="undefined") {
+            inp.value = obj.orbit[key][el];
+          } else {
+            inp.value = obj.orbit[key];
+          }
+          
+          inp.addEventListener('change', (event) => {
+            if (typeof(el)!="undefined") {
+              obj.orbit[key][el] = event.target.value;
+            } else {
+              obj.orbit[key] = event.target.value;  
+            }
+          });
+          lbl.appendChild(inp);
+      }
+      function addSat(lbl, sat) {
+        lbl.textContent = emojiName(sat);
+        lbl.addEventListener('click', function(event){
+          drawParams(sat);
+        });
+      }
       const panel = document.querySelector("#panel");
       panel.textContent = "";
       const name = document.createElement('input');
@@ -3544,22 +3646,54 @@
       panel.appendChild(name); 
       nameLabel(obj);
 
-      for (let key in obj.params) {
-        if (key == "lightdirection" || key == "rotation" || key == "lightcolor" || 
-            key == "accretion" || key == "s_position" || key == "s_scale" || key == "frame") continue;
-        
-        const value = obj.params[key];
-        if (value instanceof WebGLTexture) continue;
-        if (value == null) continue;
-        const lbl = document.createElement('label');
-        lbl.textContent = key;
-        panel.appendChild(lbl); 
-        if (Array.isArray(value)) {
-          for(el in value) {
-            addInput(lbl, key, el);
+      if (!(obj instanceof AsteroidBelt)) {
+        if (obj.orbit && obj.parent) {
+          const lbl = document.createElement('label');
+          lbl.textContent = "radius";
+          const inp = document.createElement('input');
+          inp.type = "number";
+          inp.step=10;
+          inp.value = obj.radius;
+          inp.addEventListener('change', (event) => {
+            obj.radius = obj.drawRadius = event.target.value;  
+          });
+          lbl.appendChild(inp);
+          panel.appendChild(lbl); 
+          for (let key in obj.orbit) {
+            if (key == "angle" || key == "rotationAngle") continue;
+            
+            const value = obj.orbit[key];
+            if (value instanceof WebGLTexture) continue;
+            if (value == null) continue;
+            const lbl = document.createElement('label');
+            lbl.textContent = (key=="radius"?"orbitRadius":key);
+            panel.appendChild(lbl); 
+            if (Array.isArray(value)) {
+              for(el in value) {
+                addInputOrbit(lbl, key, el);
+              }
+            } else {
+              addInputOrbit(lbl, key);
+            }
           }
-        } else {
-          addInput(lbl, key);
+        }
+        for (let key in obj.params) {
+          if (key == "lightdirection" || key == "rotation" || key == "lightcolor" || 
+              key == "accretion" || key == "s_position" || key == "s_scale" || key == "frame") continue;
+          
+          const value = obj.params[key];
+          if (value instanceof WebGLTexture) continue;
+          if (value == null) continue;
+          const lbl = document.createElement('label');
+          lbl.textContent = key;
+          panel.appendChild(lbl); 
+          if (Array.isArray(value)) {
+            for(el in value) {
+              addInput(lbl, key, el);
+            }
+          } else {
+            addInput(lbl, key);
+          }
         }
       }
       if (obj instanceof Planet) {
@@ -3598,6 +3732,27 @@
             drawParams(obj);
           });
           panel.appendChild(ringsButton);
+        }
+      }
+      if (obj.parent) {
+        const parent = document.createElement('h3');
+        parent.textContent = "Central Body";
+        panel.appendChild(parent);    
+        const lbl = document.createElement('label');
+        lbl.textContent = emojiName(obj.parent);
+        lbl.addEventListener('click', function(event){
+          drawParams(obj.parent);
+        });
+        panel.appendChild(lbl);    
+      }
+      if (obj.satelites && obj.satelites.length) {
+        const sats = document.createElement('h3');
+        sats.textContent = "Satellites";
+        panel.appendChild(sats);
+        for (i in obj.satelites) {
+          const lbl = document.createElement('label');
+          addSat(lbl, obj.satelites[i]);
+          panel.appendChild(lbl); 
         }
       }
     }
