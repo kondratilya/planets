@@ -1335,7 +1335,7 @@
       class Markov {
         constructor(random) {
           this.planets = [
-            "mer-cu-ry","ve-nus","earth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","e-ris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","moon","pho-bos","de-i-mos","eu-ro-pa","tri-ton","ti-ta-nia","rhea","obe-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-li-et","be-lin-da","ca-li-ban","tha-las-sa","des-de-mona","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","a-li-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-haut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-u-la","si-ri-us","spica","thu-ban","ve-ga", "ni-bi-ru",
+            "mer-cu-ry","ve-nus","e-arth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","e-ris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","mo-on","pho-bos","de-i-mos","eu-ro-pa","tri-ton","ti-ta-nia","rhea","o-be-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-li-et","be-lin-da","ca-li-ban","tha-las-sa","des-de-mo-na","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","a-li-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-ha-ut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-u-la","si-ri-us","spica","thu-ban","ve-ga","ni-bi-ru","ju-no","pal-las","a-mal-thea","psa-man-the","ker-be-ros","hyd-ra"
           ];
           this.random = random;
           this.chain = {"":[]};
@@ -1657,7 +1657,7 @@
       }
 
       class Point {
-        constructor (x, y) {
+        constructor(x, y) {
           this.set(x,y);
         }
         static fromPolar(a, r) {
@@ -1667,7 +1667,7 @@
         static fromPos(x, y) {
           return new Point(x, y);
         }
-        set (x, y) {
+        set(x, y) {
           if (x instanceof Point) {
             this.x=x.x;
             this.y=x.y;
@@ -1677,7 +1677,7 @@
           }
           return this;
         }
-        add (x, y) {
+        add(x, y) {
           if (!(x instanceof Point)) {
             return this.add(new Point(x,y));
           }
@@ -1685,7 +1685,7 @@
           this.y += x.y;
           return this;
         }
-        sub (x, y) {
+        sub(x, y) {
           if (!(x instanceof Point)) {
             return this.sub(new Point(x,y));
           }
@@ -1693,39 +1693,48 @@
           this.y -= x.y;
           return this;
         }
-        mul (x) {
+        mul(x) {
           this.x *= x;
           this.y *= x;
           return this;
         }
-        mul_ (x) {
+        mul_(x) {
           return new Point(this).mul(x);
         }
-        dot (x, y) {
+        dot(x, y) {
           if (!(x instanceof Point)) {
             return this.dot(new Point(x,y));
           }
           return this.x*x.x + this.y*x.y;
         }
-        len () {
+        len() {
           return Math.hypot(this.x, this.y);
         }
-        ang () {
+        ang() {
           return Math.atan2(this.y, this.x);
         }
-        dist (x, y) {
+        dist(x, y) {
           if (!(x instanceof Point)) {
             return this.dist(new Point(x,y));
           }
           return Math.hypot((x.x - this.x), (x.y - this.y));
         }
         rotate(a) {
-          this.set(Point.fromPolar(this.ang()+a, this.len()));
+          const x0 = this.x;
+          this.x = this.x * Math.cos(a) - this.y * Math.sin(a);
+          this.y =     x0 * Math.sin(a) + this.y * Math.cos(a);
+          return this;
         }
-        norm () {
+        norm() {
           let l = this.len();
           this.x /= l;
           this.y /= l;
+          return this;
+        }
+        setLen(x) {
+          let l = this.len() / x;
+          this.x = this.x / l;
+          this.y = this.y / l;
           return this;
         }
         scaled(trans) {
@@ -1752,6 +1761,11 @@
       function lightdirection(pos, a) {
         const angle = Math.atan2(pos.y, pos.x)+(a||0);
         return [Math.cos(angle), Math.sin(angle), 1];
+      }
+
+      function rotate(from, to) {
+        let mod = (a, n) => (a % n + n) % n;
+        return mod((to - from + Math.PI), Math.PI*2) - Math.PI;
       }
 
       class Orbit {
@@ -1825,7 +1839,7 @@
           const G = 100;
           let dist = Math.max((this.pos.dist(obj.pos)), this.radius, 500);
           let f = (this.mass / dist**2) * G;
-          obj.gdp.add (Point.fromPos(obj.pos).sub(this.pos).norm().mul(f));
+          obj.gdp.add(Point.fromPos(obj.pos).sub(this.pos).setLen(f));
         }
         gravitate(obj) {
           for (let i=0; i<this.satelites.length; ++i)
@@ -2501,19 +2515,17 @@
           let sp=1;
           let ts = 1;
           if (this.targetPos) {
-            let mod = (a, n) => (a % n + n) % n;
-            let diff = new Point(this.targetPos.pos).sub(this.pos)
-            let ga = diff.ang();
-            let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
+            let diff = new Point(this.targetPos.pos).sub(this.pos);
+            let da = rotate(this.a, diff.ang());
             
             if (diff.len() < 5000)ts += (diff.len()-5000)/5000;
             if(!this.takingOff && !this.onPlanet) {
-              if (da < 0){this.thrust.l = true;this.thrust.r=false;}
-              if (da > 0){this.thrust.r = true;this.thrust.l=false;}
+              if (da < 0) {this.thrust.l = true;this.thrust.r=false;}
+              if (da > 0) {this.thrust.r = true;this.thrust.l=false;}
             }
             this.thrust.u = true;
                            
-            if (diff.len() < 2000)sp = 0.5;
+            if (diff.len() < 2000) sp = 0.5;
             if (diff.len() < this.radius+(this.targetPos.radius || 200)) {
               this.targetPos = false;
               this.thrust.on = false;
@@ -2600,10 +2612,7 @@
             } else {
               //this.a = this.onPlanetA;
               if (!moved) {
-                let mod = (a, n) => (a % n + n) % n;
-                let ga = this.onPlanetA;
-                let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
-                this.a += da/15 * fraction;
+                this.a += rotate(this.a, this.onPlanetA)/15 * fraction;
               } else {
                 this.a = this.onPlanetA;
               }
@@ -2616,12 +2625,10 @@
           }
 
           if (!this.thrust.on && !this.thrust.fire && !this.onPlanet && this.world.frame-this.thrust.lastInput > 60) {
-            let mod = (a, n) => (a % n + n) % n;
-            let ga = this.gdp.ang();
+            let rotateto = this.gdp.ang();
             if (this.pos.len() > 10000)
-              ga += Math.PI;
-            let da = mod((ga - this.a + Math.PI), Math.PI*2) - Math.PI;
-            this.a += da/150 * fraction;
+              rotateto += Math.PI;
+            this.a += rotate(this.a, rotateto)/150 * fraction;
           }
 
           this.pos.sub(this.dp.mul_(fraction));
@@ -2938,7 +2945,11 @@
             this.land();
 
           if (this.onPlanet) {
-            this.pos.set(new Point(this.onPlanet.pos).add(Point.fromPolar(this.onPlanetA, this.onPlanet.radius*(-this.dead)/100)));
+            this.dp.rotate(rotate(this.dp.ang(), this.onPlanetA) / 10 * fraction);
+            let dplanet = Point.fromPos(this.pos).sub(this.onPlanet.pos);
+            let slow = Math.min(1, (dplanet.len() / this.onPlanet.radius) * 10);
+            this.pos.sub(this.dp.mul(slow).mul_(fraction));
+            this.onPlanetA = dplanet.ang();
           } else {
             this.world.sun.gravitate(this);
             this.dp.add(this.gdp.mul_(fraction));
