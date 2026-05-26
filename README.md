@@ -3,6 +3,7 @@
 Controls:
 
 	Arrows or WASD - fly
+	MouseButton or Tap - fly to position
 	"+"/"-", "Pinch" - zoom in / zoom out
 	"Space" - fire weapon
 	"Q" - switch weapon
