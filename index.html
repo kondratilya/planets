@@ -1176,7 +1176,7 @@
           }
 
           float light = dot(
-            normalize(normal),
+            normal,
             normalize(u_lightdirection)
           );
           float specularlight = specular(normal);
@@ -1744,6 +1744,7 @@
         params = new URLSearchParams(window.location.search);
         switch (param) {
           case 'population': return Math.max(10, 100 - (params.get('population') || 40));
+          case 'quality': return Math.max(4, Math.min(12, params.get('quality')||9));
           case 'id': return (window.location.hash?window.location.hash.substring(1):false) || params.get('id') || null;
         }
       }
@@ -2198,22 +2199,24 @@
               transparency: this.random.range(0.1, 0.2),
             };
           }
-          this.rings.image = this.renderer.useProgram('rings-texture').texture(this.rings, 1024, {MIN_FILTER: this.world.renderer.gl.LINEAR_MIPMAP_LINEAR});
+          const textureSize = (Math.pow(2, getParam('quality')+1));
+          this.rings.image = this.renderer.useProgram('rings-texture').texture(this.rings, textureSize, {MIN_FILTER: this.world.renderer.gl.LINEAR_MIPMAP_LINEAR});
         }
         generateTex() {
+          const textureSize = (Math.pow(2, getParam('quality')));
           this.program = this.renderer.programs[`planet${Math.abs(Math.floor(this.params.atmosphere))%2}${Math.abs(Math.floor(this.params.coloring))%3}`];
-          this.params.image = this.renderer.useProgram('planet-texture').setPositions('planet-texture').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
+          this.params.image = this.renderer.useProgram('planet-texture').setPositions('planet-texture').texture(this.params, textureSize, {MIN_FILTER: this.renderer.gl.LINEAR});
           if (!!this.params.atmosphere) {
-            this.params.cloudmap = this.renderer.useProgram('planet-cloudmap').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
+            this.params.cloudmap = this.renderer.useProgram('planet-cloudmap').texture(this.params, textureSize, {MIN_FILTER: this.renderer.gl.LINEAR});
           }else {
             this.params.cloudmap = null;
           }
           this.renderer.setPositions();
           if (this.params.coloring == 2) {
-            this.params.image = this.renderer.useProgram('planet-lava-glow').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
+            this.params.image = this.renderer.useProgram('planet-lava-glow').texture(this.params, textureSize, {MIN_FILTER: this.renderer.gl.LINEAR});
           }
           if (this.params.bumpy > 0) {
-            this.params.bump = this.renderer.useProgram('planet-normalmap').texture(this.params, 512, {MIN_FILTER: this.renderer.gl.LINEAR});
+            this.params.bump = this.renderer.useProgram('planet-normalmap').texture(this.params, textureSize, {MIN_FILTER: this.renderer.gl.LINEAR});
           } else {
             this.params.bump = null;
           }
@@ -2347,7 +2350,8 @@
           super.drawOne(trans);
         }
         generateTex() {
-          this.params.image = this.renderer.useProgram('asteroid-texture').texture(this.params, 128, {MIN_FILTER: this.renderer.gl.LINEAR});
+          const textureSize = (Math.pow(2, getParam('quality')-3));
+          this.params.image = this.renderer.useProgram('asteroid-texture').texture(this.params, textureSize, {MIN_FILTER: this.renderer.gl.LINEAR});
         }
         gravitateOne(obj) {
           return;
@@ -3103,7 +3107,6 @@
 
       MovingRect.prototype.genarateStars = function(size) {
         this.starsSize = size || 2048;
-        ;
         let params = {
           random:this.random.rand(),
           dust:this.random.range(-1,1),
@@ -3578,9 +3581,9 @@
           
           inp.addEventListener('change', (event) => {
             if (typeof(el)!="undefined") {
-              obj.params[key][el] = event.target.value;
+              obj.params[key][el] = +event.target.value;
             } else {
-              obj.params[key] = event.target.value;  
+              obj.params[key] = +event.target.value;  
             }
             if (typeof obj.generateTex == "function")
               obj.generateTex();
@@ -3600,9 +3603,9 @@
           
           inp.addEventListener('change', (event) => {
             if (typeof(el)!="undefined") {
-              obj.rings[key][el] = event.target.value;
+              obj.rings[key][el] = +event.target.value;
             } else {
-              obj.rings[key] = event.target.value;  
+              obj.rings[key] = +event.target.value;  
             }
             obj.generateRings();
           });
@@ -3621,9 +3624,9 @@
           
           inp.addEventListener('change', (event) => {
             if (typeof(el)!="undefined") {
-              obj.orbit[key][el] = event.target.value;
+              obj.orbit[key][el] = +event.target.value;
             } else {
-              obj.orbit[key] = event.target.value;  
+              obj.orbit[key] = +event.target.value;  
             }
           });
           lbl.appendChild(inp);
@@ -3655,7 +3658,7 @@
           inp.step=10;
           inp.value = obj.radius;
           inp.addEventListener('change', (event) => {
-            obj.radius = obj.drawRadius = event.target.value;  
+            obj.radius = obj.drawRadius = +event.target.value;
           });
           lbl.appendChild(inp);
           panel.appendChild(lbl); 
