@@ -257,6 +257,33 @@
       }
     </script>
 
+    <script id="vertex-shader-2d-lightdirection" type="notjs">
+      attribute vec2 a_position;
+      uniform vec2 u_resolution;
+      
+      uniform vec2 u_position;
+      uniform vec2 u_scale;
+      uniform float u_angle;
+
+      uniform vec3 u_lightdirection;
+      
+      varying vec2 v_rpos;
+      varying vec3 v_lightdirection;
+
+      void main() {
+        vec2 rotation = vec2(sin(u_angle), cos(u_angle));
+        vec2 rotated = vec2(
+          a_position.x * rotation.y + a_position.y * rotation.x,
+          a_position.y * rotation.y - a_position.x * rotation.x
+        );
+        vec2 position = rotated*u_scale + u_position;
+        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        v_rpos = a_position;
+        v_lightdirection = normalize(u_lightdirection);
+      }
+    </script>
+
     <script id="vertex-shader-rings" type="notjs">
       attribute vec2 a_position;
       uniform vec2 u_resolution;
@@ -449,7 +476,7 @@
 
     <script id="fragment-shader-planet" type="notjs">
       varying vec2 v_rpos;
-      varying vec2 v_tpos;
+      varying vec3 v_lightdirection;
 
       uniform sampler2D u_image;
       uniform sampler2D u_bump;
@@ -458,7 +485,6 @@
       uniform vec3 u_groundcolor2;
       uniform vec3 u_seacolor;
       uniform vec2 u_climate;
-      uniform vec3 u_lightdirection;
       uniform vec3 u_lightcolor;
       uniform float u_lightambient;
       uniform float u_albedo;
@@ -512,7 +538,7 @@
 
       float specular(vec3 normal) {
         const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
-        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        vec3 halfVector = normalize(v_lightdirection + surfaceToViewDirection);
         return pow(dot(normal, halfVector), 100.)*u_seashine;
       }
 
@@ -545,7 +571,7 @@
           vec3 normal = normalize(vec3(v_rpos, sqrt(1.0 - lengthSq2)) + bump);
           light = dot(
             normal,
-            normalize(u_lightdirection)
+            v_lightdirection
           );
 
           #if COLORING == 0
@@ -557,7 +583,7 @@
             colour_value = color_lava(tex, light);
           #endif
 
-          vec2 glowd = v_rpos - normalize(u_lightdirection).xy/10.;
+          vec2 glowd = v_rpos - v_lightdirection.xy/10.;
           float glow = max(0., glowd.x*glowd.x + glowd.y*glowd.y-0.5);
           light=max(pow(glow, 2.)*u_glow*u_lightambient, light);
 
@@ -565,7 +591,7 @@
             float shadow_value;
             clouds_value += glow/5.*u_glow;
             if(clouds_value<1.)
-              shadow_value = clouds(spherize(v_rpos+normalize(u_lightdirection).xy/50.), lengthSq2);
+              shadow_value = clouds(spherize(v_rpos+v_lightdirection.xy/50.), lengthSq2);
             light -= shadow_value/2. * max(0., 1.-clouds_value);
           #endif
 
@@ -592,18 +618,18 @@
     
     <script id="fragment-shader-asteroid" type="notjs">
       varying vec2 v_rpos;
+      varying vec3 v_lightdirection;
 
       uniform sampler2D u_image;
       uniform vec3 u_color;
       uniform float u_random;
-      uniform vec3 u_lightdirection;
       uniform float u_lightambient;
 
       void main() {
         vec4 tex = texture2D(u_image, (v_rpos/2.)+0.5);
         float light = dot(
           normalize(vec3(v_rpos, tex.y)),
-          normalize(u_lightdirection)
+          v_lightdirection
         );
         gl_FragColor = vec4(u_color * max(light * tex.x, u_lightambient), tex.z);
       }
@@ -714,9 +740,9 @@
 
     <script id="fragment-shader-rocket" type="notjs">
       varying vec2 v_rpos;
-      uniform vec3 u_color;
-      uniform vec3 u_lightdirection;
+      varying vec3 v_lightdirection;
 
+      uniform vec3 u_color;
       uniform float u_wide;//=0.33;
       uniform float u_curvy;//=0.8;
       uniform vec2 u_wing1;//=vec2(0.7, -1);
@@ -737,14 +763,14 @@
       
       float specular(vec3 normal) {
         const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
-        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        vec3 halfVector = normalize(v_lightdirection + surfaceToViewDirection);
         return pow(dot(normal, halfVector), 100.)*1.;
       }
 
       float line(vec2 p1, vec2 p2) {
-          float a = p1.y-p2.y;
-          float b = p2.x-p1.x;
-          return a*v_rpos.x+b*v_rpos.y+p1.x*p2.y-p2.x*p1.y;
+        float a = p1.y-p2.y;
+        float b = p2.x-p1.x;
+        return a*v_rpos.x+b*v_rpos.y+p1.x*p2.y-p2.x*p1.y;
       }
 
       float drawLine(vec2 p1, vec2 p2) {
@@ -794,7 +820,7 @@
           vec3 normal = normalize(vec3(p, sqrt(1.0 - pow(length(p), 2.))));
           float light = dot(
             normalize(normal),
-            normalize(u_lightdirection)
+            v_lightdirection
           );
           float specularlight = specular(normal);
           light = max(.2, light+specularlight);
@@ -1105,22 +1131,22 @@
       varying vec2 v_rpos;
       uniform vec3 u_color;
       uniform float u_random;
-      uniform float u_frame;
+      uniform float u_time;
       uniform float u_intensivity;
       const vec4 raysn = vec4(0.7, 0.4, 2, 1);
 
       void main() {
         float len = length(v_rpos);
-        float r = sin(min(u_frame, 50.)/50. * M_PI/2.);
+        float r = sin(min(u_time, .5)/.5 * M_PI/2.);
        
         if (len < r) {
           float rays, ball, transp;
-          transp = cos(max(0., u_frame-10.)/50.);
+          transp = cos(max(0., u_time-.1)/.5);
           ball = smoothstep(r, r*0.5, len);
           float a = atan(v_rpos.y, v_rpos.x);          
           float x = mix(v_rpos.x, cos(a), 1.-ball);
           float y = mix(v_rpos.y, sin(a), 1.-ball);
-          rays = noize_harm(vec3(x, y, sin(len-r-u_frame/100.)+u_random), raysn);
+          rays = noize_harm(vec3(x, y, sin(len-r-u_time)+u_random), raysn);
           rays += ball*u_intensivity;
           float intensivity = rays-(1.-transp);
           vec3 color = vec3(intensivity, pow(max(intensivity, 0.0), 2.0) * 0.4, pow(max(intensivity, 0.0), 3.0) * 0.15);
@@ -1133,9 +1159,9 @@
 
     <script id="fragment-shader-ufo" type="notjs">
       varying vec2 v_rpos;
+      varying vec3 v_lightdirection;
       uniform vec3 u_color;
       uniform float u_frame;
-      uniform vec3 u_lightdirection;
       uniform float u_opacity;
       uniform float u_ribs;
       uniform vec3 u_cockpitcolor;
@@ -1148,7 +1174,7 @@
 
       float specular(vec3 normal) {
         const vec3 surfaceToViewDirection = vec3(0,0,1); //normalized
-        vec3 halfVector = normalize(normalize(u_lightdirection) + surfaceToViewDirection);
+        vec3 halfVector = normalize(v_lightdirection + surfaceToViewDirection);
         return max(0., pow(dot(normal, halfVector), 100.));
       }
 
@@ -1177,7 +1203,7 @@
 
           float light = dot(
             normal,
-            normalize(u_lightdirection)
+            v_lightdirection
           );
           float specularlight = specular(normal);
           light=max(0.2, light);
@@ -1335,8 +1361,9 @@
       class Markov {
         constructor(random) {
           this.planets = [
-            "mer-cu-ry","ve-nus","e-arth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","e-ris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","mo-on","pho-bos","de-i-mos","eu-ro-pa","tri-ton","ti-ta-nia","rhea","o-be-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-li-et","be-lin-da","ca-li-ban","tha-las-sa","des-de-mo-na","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","a-li-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-ha-ut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-u-la","si-ri-us","spica","thu-ban","ve-ga","ni-bi-ru","ju-no","pal-las","a-mal-thea","psa-man-the","ker-be-ros","hyd-ra"
+            "mer-cu-ry","ve-nus","e-arth","mars","ju-pi-ter","sa-turn","u-ra-nus","nep-tune","plu-to","e-ris","ce-res","ma-ke-ma-ke","hau-mea","ga-ny-mede","ti-tan","cal-lis-to","io","mo-on","pho-bos","de-i-mos","eu-ro-pa","tri-ton","ti-ta-nia","rhea","o-be-ron","ia-pe-tus","cha-ron","um-bri-el","ari-el","di-one","te-thys","en-ce-la-dus","mi-ran-da","van-th","pro-te-us","mi-mas","il-ma-rë","ne-re-id","hiʻ-ia-ka","ac-ta-ea","wey-wot","la-ris-sa","na-ma-ka","sy-co-rax","puck","por-tia","hi-ma-lia","de-spi-na","ga-la-tea","ju-li-et","be-lin-da","ca-li-ban","tha-las-sa","des-de-mo-na","na-iad","pros-pe-ro","ela-ra","cu-pid","bi-an-ca","pho-e-be","se-te-bos","ac-rux","ad-ha-ra","al-bi-reo","al-cy-one","al-de-ba-ran","al-de-ra-min","al-gi-eba","al-gol","a-li-oth","al-kaid","al-ni-lam","al-ni-tak","al-phard","al-pher-atz","al-tair","an-ta-res","arc-tu-rus","bel-lat-riz","be-tel-geu-se","ca-no-pus","ca-pel-la","cas-tor","de-neb","de-ne-bo-la","diph-da","dub-he","el-nath","e-nif","fo-mal-ha-ut","ga-crux","ha-dar","ha-mal","ko-chab","mi-ra","mi-rach","mir-fak","mi-zar","po-la-ris","pol-lux","pro-cy-on","ra-sal-hague","re-gu-lus","ri-gel","sche-dar","sha-u-la","si-ri-us","spica","thu-ban","ve-ga","ni-bi-ru","ju-no","pal-las","a-mal-thea","psa-man-the","ker-be-ros","hyd-ra","dys-no-mia"
           ];
+          this.suffixes = ["Major","Minor","Australis","Borealis","Posterior","Prior","Primus","Secundus","Tertius","Media",]
           this.random = random;
           this.chain = {"":[]};
           this.allNames = new Set();
@@ -1388,6 +1415,10 @@
             return this.generateNumber() + " " + this.generate();
           }
           return "Asteroid-"+this.generateNumber();
+        }
+        suffix(name, prob) {
+          prob = prob || 1;
+          return name + (this.random.rand()<=prob?(" "+this.random.choice(this.suffixes)):"");
         }
       }
 
@@ -1608,10 +1639,35 @@
           if (typeof a == 'undefined') { a = h; h = w;}
           w = w || 1;
           h = h || w;
-          if (x + this.positions.x2*w < 0) return;
-          if (y + this.positions.y2*h < 0) return;
-          if (x + this.positions.x1*w > this.gl.canvas.width) return;
-          if (y + this.positions.y1*h > this.gl.canvas.height) return;
+          const r = Math.max(h, w);
+
+          // window.overlayCtx.strokeStyle = "red";
+          // window.overlayCtx.strokeRect(x+this.positions.x1*w, y+this.positions.y1*h, (this.positions.x2 - this.positions.x1)*w, (this.positions.y2 - this.positions.y1)*h);
+          // window.overlayCtx.strokeStyle = "blue";
+          // window.overlayCtx.strokeRect(x+this.positions.x1*r, y+this.positions.y1*r, (this.positions.x2 - this.positions.x1)*r, (this.positions.y2 - this.positions.y1)*r);
+          // window.overlayCtx.strokeStyle = "green";
+
+          // let x1 = this.positions.x1*w * Math.cos(Math.PI-a) - this.positions.y1*h * Math.sin(Math.PI-a);
+          // let y1 = this.positions.x1*w * Math.sin(Math.PI-a) + this.positions.y1*h * Math.cos(Math.PI-a);
+          // let x2 = this.positions.x2*w * Math.cos(Math.PI-a) - this.positions.y1*h * Math.sin(Math.PI-a);
+          // let y2 = this.positions.x2*w * Math.sin(Math.PI-a) + this.positions.y1*h * Math.cos(Math.PI-a);
+          // let x3 = this.positions.x2*w * Math.cos(Math.PI-a) - this.positions.y2*h * Math.sin(Math.PI-a);
+          // let y3 = this.positions.x2*w * Math.sin(Math.PI-a) + this.positions.y2*h * Math.cos(Math.PI-a);
+          // let x4 = this.positions.x1*w * Math.cos(Math.PI-a) - this.positions.y2*h * Math.sin(Math.PI-a);
+          // let y4 = this.positions.x1*w * Math.sin(Math.PI-a) + this.positions.y2*h * Math.cos(Math.PI-a);
+
+          // window.overlayCtx.beginPath();
+          // window.overlayCtx.moveTo(x+x1, y+y1);
+          // window.overlayCtx.lineTo(x+x2, y+y2);
+          // window.overlayCtx.lineTo(x+x3, y+y3);
+          // window.overlayCtx.lineTo(x+x4, y+y4);
+          // window.overlayCtx.lineTo(x+x1, y+y1);
+          // window.overlayCtx.stroke();
+
+          if (x + this.positions.x2*r < 0) return;
+          if (y + this.positions.y2*r < 0) return;
+          if (x + this.positions.x1*r > this.gl.canvas.width) return;
+          if (y + this.positions.y1*r > this.gl.canvas.height) return;
           this.program.setParams(Object.assign({position: [x, y], scale: [w, h], angle: a || 0}, params));
           this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.count || 4);
         }
@@ -2256,7 +2312,7 @@
           this.drawRadius = this.radius;
           this.radius /= this.params.shiny[0]+1;
           this.program = this.renderer.programs.sun;
-          this.name = this.world.names.generate();
+          this.name = this.world.names.suffix( this.world.names.generate(), 0.3);
         }
         roll() {
           super.roll();
@@ -2289,7 +2345,7 @@
           this.radius = this.drawRadius * this.params.radius/2;
           if (this.params.accretion)
             this.program = this.renderer.programs['black-hole-accretion'];
-          this.name = this.world.names.generate();
+          this.name = this.world.names.suffix( this.world.names.generate(), 0.3);
         }
         roll() {
           super.roll();
@@ -2775,7 +2831,9 @@
             ul: this.radius,
             uw: this.radius/3,
             ux:-this.radius/3,
-          }          
+          }
+          this.lifeSpan = 1000;
+          this.explodeSpeed = 20; 
         }
         collide(obj, dp){
           if (obj instanceof Rocket) return;
@@ -2788,14 +2846,14 @@
         }
         explode() {
           this.fuel = 0;
-          this.dead=-100;
+          this.dead = -this.explodeSpeed;
           this.collide = ()=>{};
           this.explode = ()=>{};
         }
         move(fraction) {
           this.gdp.set(0, 0);
 
-          if (this.frame>1000)
+          if (this.frame > this.lifeSpan)
             this.explode();
 
           if (this.onPlanet) {
@@ -2813,13 +2871,14 @@
             if (!this.dead)
               this.world.sun.collision(this, this.collide);
           }
-          if (this.dead)this.dead+=4;
+          if (this.dead) this.dead += fraction;
           this.frame += fraction;
         }
 
         draw() {
           const scaledPos = this.scaledPos;
           const scale = this.world.game?this.world.trans.scale:1;
+          const deathFract = (-this.dead||this.explodeSpeed) / this.explodeSpeed;
 
           if (this.fuel > 0) {
             const t1 = Point.fromPos(scaledPos).add(Point.fromPolar(this.a, this.fire.ux*scale));
@@ -2827,11 +2886,10 @@
             this.renderer.setPositions();
           }
 
-          const expl = Math.abs((this.dead||-100)/-100);
           this.params.lightdirection = lightdirection(this.pos, Math.PI/2-this.a);
-          this.renderer.useProgram('rocket').render(this.params, scaledPos.x, scaledPos.y, this.radius*scale*expl, this.radius*scale*expl, -this.a-Math.PI/2);
+          this.renderer.useProgram('rocket').render(this.params, scaledPos.x, scaledPos.y, this.radius*scale*deathFract, this.radius*scale*deathFract, -this.a-Math.PI/2);
           if (this.dead) {
-            this.renderer.useProgram('explosion').render({frame:100+this.dead, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*scale, this.radius*scale, -this.a-Math.PI/2);
+            this.renderer.useProgram('explosion').render({time:1-deathFract, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*scale, this.radius*scale, -this.a-Math.PI/2);
           }
         }
       }
@@ -2847,6 +2905,7 @@
           this.params = {
             color: [1, 0, 0],
           };
+          this.lifeSpan = 1000;
         }
         collide(obj, dp){
           if (obj instanceof Laser) return;
@@ -2855,12 +2914,12 @@
         }
         die() {
           this.fuel = 0;
-          this.dead=-1;
+          this.dead = 1;
           this.collide = ()=>{};
           this.die = ()=>{};
         }
         move(fraction) {
-          if (this.frame>1000)
+          if (this.frame > this.lifeSpan)
             this.die();
 
           if (!this.world.paused)
@@ -2868,7 +2927,6 @@
           if (!this.dead)
             this.world.sun.collision(this, this.collide);
 
-          if (this.dead)this.dead+=4;
           this.frame += fraction;
         }
 
@@ -2913,6 +2971,11 @@
           } else this.params.windows = 10;
           if(this.params.windowssize < 0.05)this.params.windows = 10;
           if(this.params.windows < 0.2)this.params.windows = 10;
+
+          this.spawnSpeed = 50;
+          this.lifeSpan = 1000;
+          this.explodeSpeed = 100;
+          this.landingSpeed = 100;
         }
         collide(obj, dp){
           if (obj instanceof Enemy) return;
@@ -2927,28 +2990,32 @@
           }
           return true;
         }        
-        explode() {
-          this.fuel = 0;
-          this.dead=-100;
+        noInteract() {
           this.collide = ()=>{};
           this.explode = ()=>{};
           this.land = ()=>{};
+          this.noInteract = ()=>{};
+        }
+        explode() {
+          this.dead= -this.explodeSpeed;
+          this.noInteract();
         }
         land() {
-          this.explode();
-          this.is_landing = true;
+          this.landing = -this.landingSpeed;
+          this.noInteract();
         }
         move(fraction) {
           this.gdp.set(0, 0);
 
-          if (this.frame>1000)
+          if (this.frame > this.lifeSpan)
             this.land();
 
           if (this.onPlanet) {
+            const landFract = (-this.landing||this.landingSpeed) / this.landingSpeed;
             this.dp.rotate(rotate(this.dp.ang(), this.onPlanetA) / 10 * fraction);
             let dplanet = Point.fromPos(this.pos).sub(this.onPlanet.pos);
-            let slow = Math.min(1, (dplanet.len() / this.onPlanet.radius) * 10);
-            this.pos.sub(this.dp.mul(slow).mul_(fraction));
+            this.pos.sub(this.dp.mul_(fraction));
+            this.pos.sub(dplanet.mul(Math.pow(1-landFract, 5)*fraction));
             this.onPlanetA = dplanet.ang();
           } else {
             this.world.sun.gravitate(this);
@@ -2957,25 +3024,29 @@
             this.world.sun.collision(this, this.collide);
           }
           if (this.dead)this.dead += fraction;
+          if (this.landing)this.landing += fraction;
+          if (this.landing >=0)this.dead = 1;
           this.a += this.rotation * fraction;
 
           this.radius = this.self_radius;
-          if (this.frame < 100) {
-            this.radius *= this.frame/100;
+          if (this.frame < this.spawnSpeed) {
+            this.radius *= this.frame/this.spawnSpeed;
           }
           this.frame += fraction;
         }
         draw() {
           const scaledPos = this.scaledPos;
-          const expl = Math.max(0, Math.abs(this.dead||-100)-50)/50;
+          const deathFract = (-this.dead||this.explodeSpeed) / this.explodeSpeed;
+          const landFract = (-this.landing||this.landingSpeed) / this.landingSpeed;
+          const expl = Math.max(0, Math.min(deathFract*2-1, landFract));
 
           this.params.lightdirection = lightdirection(this.pos, Math.PI/2-this.a);
           this.params.frame = this.frame;
-          this.params.opacity = (-this.dead||100)/100;
+          this.params.opacity = Math.min(deathFract, landFract);
           this.renderer.useProgram('ufo').render(this.params, scaledPos.x, scaledPos.y, this.radius*expl*this.world.trans.scale, this.radius*expl*this.world.trans.scale, -this.a-Math.PI/2);
 
           if (this.dead && !this.is_landing) {
-            this.renderer.useProgram('explosion').render({frame:100+this.dead, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*2*this.world.trans.scale, this.radius*2*this.world.trans.scale, -this.a-Math.PI/2);
+            this.renderer.useProgram('explosion').render({time:1-deathFract, intensivity:2, random:this.rand}, scaledPos.x, scaledPos.y, this.radius*2*this.world.trans.scale, this.radius*2*this.world.trans.scale, -this.a-Math.PI/2);
           }          
         }
       }
@@ -3004,18 +3075,18 @@
           new Program(renderer, "black-hole", "#vertex-shader-black-hole", "#fragment-shader-black-hole");
 
           new Program(renderer, "asteroid-texture", "#vertex-shader-2d", "#fragment-shader-asteroid-texture");
-          new Program(renderer, "asteroid", "#vertex-shader-2d", "#fragment-shader-asteroid");
+          new Program(renderer, "asteroid", "#vertex-shader-2d-lightdirection", "#fragment-shader-asteroid");
 
           new Program(renderer, "planet-texture", "#vertex-shader-2d", "#fragment-shader-planet-texture");
           new Program(renderer, "planet-lava-glow", "#vertex-shader-space", "#fragment-shader-planet-lava-glow");
           new Program(renderer, "planet-normalmap", "#vertex-shader-space", "#fragment-shader-normalmap");
           new Program(renderer, "planet-cloudmap", "#vertex-shader-2d", "#fragment-shader-cloudmap");
-          new Program(renderer, "planet00", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 0});
-          new Program(renderer, "planet01", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 0});
-          new Program(renderer, "planet02", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 0});
-          new Program(renderer, "planet10", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 1});
-          new Program(renderer, "planet11", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 1});
-          new Program(renderer, "planet12", "#vertex-shader-2d", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 1});
+          new Program(renderer, "planet00", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 0});
+          new Program(renderer, "planet01", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 0});
+          new Program(renderer, "planet02", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 0});
+          new Program(renderer, "planet10", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 0, ATMOSPHERE: 1});
+          new Program(renderer, "planet11", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 1, ATMOSPHERE: 1});
+          new Program(renderer, "planet12", "#vertex-shader-2d-lightdirection", "#fragment-shader-planet", {COLORING: 2, ATMOSPHERE: 1});
 
           new Program(renderer, "rings-texture", "#vertex-shader-2d", "#fragment-shader-rings-texture");
           new Program(renderer, "rings", "#vertex-shader-rings", "#fragment-shader-rings");
@@ -3024,11 +3095,11 @@
           new Program(renderer, "space", "#vertex-shader-space", "#fragment-shader-space");
           new Program(renderer, "galaxy", "#vertex-shader-black-hole", "#fragment-shader-galaxy");
 
-          new Program(renderer, "rocket", "#vertex-shader-rings", "#fragment-shader-rocket");
+          new Program(renderer, "rocket", "#vertex-shader-2d-lightdirection", "#fragment-shader-rocket");
           new Program(renderer, "laser", "#vertex-shader-rings", "#fragment-shader-laser");
           new Program(renderer, "flame", "#vertex-shader-rings", "#fragment-shader-flame");
           new Program(renderer, "explosion", "#vertex-shader-2d", "#fragment-shader-explosion");
-          new Program(renderer, "ufo", "#vertex-shader-2d", "#fragment-shader-ufo", {SIDES: "6."});
+          new Program(renderer, "ufo", "#vertex-shader-2d-lightdirection", "#fragment-shader-ufo", {SIDES: "6."});
 
           const orbitPositions = [];
           const w = 0.01, w2 = 1-w, w1 = 1+w;
@@ -3174,7 +3245,7 @@
           );
         }
 
-        // this.renderer.useProgram('explosion').render({frame:(this.frame*2)%100, random:Math.floor(this.frame/100)*10, intensivity:2}, 200, 500, 100);
+        // this.renderer.useProgram('explosion').render({time:(this.frame%200)/200, random:Math.floor(this.frame/200)*10, intensivity:2}, 200, 500, 100);
         // const lightdir = lightdirection(new Point(Math.cos(this.frame/100),Math.sin(this.frame/100)), Math.PI/2+this.a);
         // for (let i=0;i<1000;++i)
         // this.renderer.useProgram('ufo').render({
@@ -3257,6 +3328,9 @@
       }    
 
       MovingRect.prototype.draw = function(timestamp) {
+        // window.overlayCtx.clearRect(0, 0, window.overlayCanvas.width, window.overlayCanvas.height);
+        // window.overlayCtx.strokeStyle = "red";
+
         const elapsed = timestamp - this.last;
         let fraction = elapsed/(1000/60);
         this.last = timestamp;
@@ -3317,6 +3391,7 @@
   </head>
   <body style="margin: 0px; overflow: hidden; font-family:Trebuchet MS, Lucida Sans Unicode, Lucida Grande, Lucida Sans, Arial, sans-serif">
     <canvas id="canvas" width="500" height="500" style="background:#000; margin:0px;overflow:hidden;touch-action:none;"></canvas>
+    <!-- <canvas id="overlay" width="500" height="500" style="margin: 0px; overflow: hidden; touch-action: none; z-index: 10; position: absolute; left: 0px; top: 0px; background-color: transparent;"></canvas> -->
     <div id="panel" style="width:fit-content;height:98%;color:black;position:absolute;top:0;background:aliceblue;right:0;opacity:0.75;overflow-y:auto;display:none;margin:6px;padding:6px;border-radius:6px;box-sizing:border-box;"></div>
     <div id="label" style="--min-dimension: min(100vw, 100vh);width:fit-content;height:fit-content;color:black;position:absolute;background:aliceblue;top:2%;left:2%;opacity:0.5;overflow-y:auto;margin:6px;padding:6px;border-radius:6px;box-sizing:border-box;"></div>
   </body>
@@ -3324,6 +3399,12 @@
     const canvas = document.getElementById('canvas');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+
+    // window.overlayCanvas = document.querySelector("#overlay");
+    // window.overlayCanvas.width = canvas.width;
+    // window.overlayCanvas.height = canvas.height;
+    // window.overlayCtx = window.overlayCanvas.getContext("2d");
+
     mr = new MovingRect(canvas);
     window.speed = 1;
     mr.orbitType = 3;
@@ -3460,6 +3541,9 @@
       }
       mr.width = canvas.getBoundingClientRect().width;
       mr.height = canvas.getBoundingClientRect().height;
+
+      // window.overlayCanvas.width = canvas.width;
+      // window.overlayCanvas.height = canvas.height;
     });
 
     function setDirectionPoint(event) {
